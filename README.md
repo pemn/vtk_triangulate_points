@@ -22,16 +22,16 @@ The script accepts multple formats common in the Mining and Topgraphy industry:
  - Las Topography (*.las)
  - Raster Geotiff (*.tif, *.tiff)
 
-## screenshots
+## Screenshots
 ### Graphic User Interface
 ![screenshot1](https://github.com/pemn/vtk_triangulate_points/raw/main/assets/screenshot1.png)
-### Example Result using Grid
+### Example result using Grid method on bogota.tif
 ![screenshot5](https://github.com/pemn/vtk_triangulate_points/raw/main/assets/screenshot5.png)
-### Example Result using Delaunay 2d
+### Example result using Delaunay 2d on point_wall.csv
 ![screenshot2](https://github.com/pemn/vtk_triangulate_points/raw/main/assets/screenshot2.png)
-### Example Result using Delaunay 3d
+### Example Result using Delaunay 3d on point_wall.csv
 ![screenshot3](https://github.com/pemn/vtk_triangulate_points/raw/main/assets/screenshot3.png)
-### Example Result using Outline
+### Example Result using Outline on pont_wall.csv
 ![screenshot4](https://github.com/pemn/vtk_triangulate_points/raw/main/assets/screenshot4.png)
 
 
