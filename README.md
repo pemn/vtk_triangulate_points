@@ -23,5 +23,13 @@ The script accepts multple formats common in the Mining and Topgraphy industry:
  - Raster Geotiff (*.tif, *.tiff)
 
 ## screenshots
-![screenshot1](https://github.com/pemn/vtk_triangulate_points/blob/master/assets/screnshot1.png)
+### Graphic User Interface
+![screenshot1](https://github.com/pemn/vtk_triangulate_points/blob/master/assets/screenshot1.png)
+### Example Result using Delaunay 2d
+![screenshot2](https://github.com/pemn/vtk_triangulate_points/blob/master/assets/screenshot2.png)
+### Example Result using Delaunay 3d
+![screenshot3](https://github.com/pemn/vtk_triangulate_points/blob/master/assets/screenshot3.png)
+### Example Result using Grid
+![screenshot4](https://github.com/pemn/vtk_triangulate_points/blob/master/assets/screenshot4.png)
+
 
