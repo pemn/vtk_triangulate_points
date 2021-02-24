@@ -25,11 +25,13 @@ The script accepts multple formats common in the Mining and Topgraphy industry:
 ## screenshots
 ### Graphic User Interface
 ![screenshot1](https://github.com/pemn/vtk_triangulate_points/raw/main/assets/screenshot1.png)
+### Example Result using Grid
+![screenshot5](https://github.com/pemn/vtk_triangulate_points/raw/main/assets/screenshot5.png)
 ### Example Result using Delaunay 2d
 ![screenshot2](https://github.com/pemn/vtk_triangulate_points/raw/main/assets/screenshot2.png)
 ### Example Result using Delaunay 3d
 ![screenshot3](https://github.com/pemn/vtk_triangulate_points/raw/main/assets/screenshot3.png)
-### Example Result using Grid
+### Example Result using Outline
 ![screenshot4](https://github.com/pemn/vtk_triangulate_points/raw/main/assets/screenshot4.png)
 
 
