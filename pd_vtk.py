@@ -112,7 +112,9 @@ def vtk_df_to_mesh(df, xyz = None):
         print('using 0 as Z value')
         df['z'] = 0
 
-  pdata = df[xyz].dropna().values.astype(np.float)
+  pdata = df[xyz].dropna(0, 'all')
+  pdata.fillna(0, inplace=True)
+  pdata = pdata.values.astype(np.float)
   if 'n' in df and df['n'].max() > 0:
     mesh = pv.PolyData(pdata, vtk_flat_to_faces(df['n']))
   else:

@@ -205,13 +205,20 @@ def pd_load_geotiff(input_path):
   gt = idset.GetGeoTransform()
   # ReadAsArray(self, xoff=0, yoff=0, xsize=None, ysize=None, buf_obj=None, buf_xsize=None, buf_ysize=None, buf_type=None, resample_alg=gdalconst.GRIORA_NearestNeighbour, callback=None, callback_data=None, interleave='band')
   bd = idset.ReadAsArray(0, 0, idset.RasterXSize, idset.RasterYSize)
+  #bd = bd.astype(np.float)
 
   vl = []
   for i in range(idset.RasterCount):
     vl.append(str(i))
     # sometime gdal does not handle NoData corretly so we do it again anyway
     nodata = idset.GetRasterBand(i+1).GetNoDataValue()
-    if bd.ndim == 2:
+    if nodata is None:
+      # nodata not defined
+      pass
+    elif str(bd.dtype).find('int') >= 0:
+      # int types do not support NaN
+      pass
+    elif bd.ndim == 2:
       np.putmask(bd, bd == nodata, np.nan)
     else:
       np.putmask(bd[i], bd[i] == nodata, np.nan)
@@ -255,13 +262,16 @@ def pd_save_geotiff(df, output_path):
     ds = driver.Create(output_path, nx, ny, nc, gdt, options = ['PROFILE=GeoTIFF', 'PHOTOMETRIC=RGB'])
   an = df.columns[0]
   ac = df.iloc[0, 0]
+  print("ac",ac)
   if ac:
     sr = osr.SpatialReference()
     sr.SetFromUserInput("%s:%d" % (an, ac))
     ds.SetSpatialRef(sr)
-    ds.SetGeoTransform(df.iloc[0][['x0', 'txx', 'txy', 'y0', 'tyx', 'tyy']])
     print(sr.GetName())
-
+  dscol = ['x0', 'txx', 'txy', 'y0', 'tyx', 'tyy']
+  # check if all required columns are in df
+  if set(dscol).issubset(df.columns):
+    ds.SetGeoTransform(df.iloc[0][dscol])
   for i in range(ds.RasterCount):
     ds.GetRasterBand(i+1).WriteArray(df[str(i)].values.reshape((nx,ny)).T)
   ds.FlushCache()
