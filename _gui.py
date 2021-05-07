@@ -92,8 +92,11 @@ def pd_load_dataframe(df_path, condition = '', table_name = None, vl = None, kee
     df_path, table_name = table_name_selector(df_path)
 
   df = None
-  if re.search(r'(csv|asc)$', df_path, re.IGNORECASE):
-    df = pd.read_csv(df_path, encoding="latin1")
+  if not os.path.exists(df_path):
+    print(df_path,"not found")
+    df = pd.DataFrame()
+  elif re.search(r'(csv|asc|prn|txt)$', df_path, re.IGNORECASE):
+    df = pd.read_csv(df_path, None, engine='python', encoding="latin_1")
   elif re.search(r'xls\w?$', df_path, re.IGNORECASE):
     df = pd_load_excel(df_path, table_name)
   elif df_path.lower().endswith('bmf'):
@@ -125,8 +128,8 @@ def pd_load_dataframe(df_path, condition = '', table_name = None, vl = None, kee
   elif df_path.lower().endswith('obj'):
     df = pd_load_obj(df_path)
   elif re.search(r'tiff?$', df_path, re.IGNORECASE):
-    from vulcan_save_tri import pd_load_geotiff
-    df = pd_load_geotiff(df_path)
+    import vulcan_save_tri
+    df = vulcan_save_tri.pd_load_geotiff(df_path)
   else:
     df = pd.DataFrame()
 
@@ -145,7 +148,13 @@ def pd_save_dataframe(df, df_path, sheet_name='Sheet1'):
   import pandas as pd
   ''' save a dataframe to one of the supported formats '''
   if df.size:
+    if df.ndim == 1:
+      # we got a series somehow?
+      df = df.to_frame()
     if not str(df.index.dtype).startswith('int'):
+      levels = list(set(df.index.names).intersection(df.columns))
+      if len(levels):
+        df.reset_index(levels, drop=True, inplace=True)
       df.reset_index(inplace=True)
     while isinstance(df.columns, pd.MultiIndex):
       df.columns = df.columns.droplevel(1)
@@ -175,12 +184,12 @@ def pd_save_dataframe(df, df_path, sheet_name='Sheet1'):
     elif df_path.lower().endswith('png'):
       pd_save_spectral(df, df_path)
     elif re.search(r'tiff?$', df_path, re.IGNORECASE):
-      from vulcan_save_tri import pd_save_geotiff
-      pd_save_geotiff(df, df_path)
+      import vulcan_save_tri
+      vulcan_save_tri.pd_save_geotiff(df, df_path)
     elif len(df_path):
       df.to_csv(df_path, index=False)
     else:
-      print(df.to_string())
+      print(df.to_string(index=False))
   else:
     print(df_path,"empty")
 
@@ -316,7 +325,8 @@ class ClientScript(list):
     else:
       import subprocess
       # create a new process and passes the arguments on the command line
-      p = subprocess.Popen(cls.exe() + [cls._file] + script.getArgs())
+      args = cls.exe() + [cls._file] + script.getArgs()
+      p = subprocess.Popen(" ".join(args))
       p.wait()
       p = p.returncode
 
@@ -362,7 +372,7 @@ class ClientScript(list):
   @classmethod
   def parse(cls):
     if os.path.exists(cls._file):
-      with open(cls._file, 'r') as file:
+      with open(cls._file, 'r', encoding='latin_1') as file:
         for line in file:
           if re.search(cls._magic, line, re.IGNORECASE):
             return line
@@ -706,25 +716,28 @@ def pd_load_dgd(df_path, layer_dgd = None):
       layer = dgd.get_layer(l)
       oid = 0
       for obj in layer:
-        for n in range(obj.num_points()):
-          row = len(df)
-          df.loc[row] = [None] * df.shape[1]
-          p = obj.get_point(n)
-          df.loc[row, 'x'] = p.get_x()
-          df.loc[row, 'y'] = p.get_y()
-          df.loc[row, 'z'] = p.get_z()
-          df.loc[row, 'w'] = p.get_w()
-          df.loc[row, 't'] = p.get_t()
-          # point sequence withing this polygon
-          df.loc[row, 'n'] = n
-
-          # point name attribute
-          df.loc[row, 'p'] = p.get_name()
-          df.loc[row, 'closed'] = obj.is_closed()
-          df.loc[row, 'layer'] = layer.get_name()
-          df.loc[row, 'oid'] = str(oid)
-          for t in obj_attr:
-            df.loc[row, t] = getattr(obj, t)
+        row = len(df)
+        df_row = pd.Series()
+        df_row['oid'] = str(oid)
+        df_row['layer'] = layer.get_name()
+        for t in obj_attr:
+          df_row[t] = getattr(obj, t)
+        if obj.get_type() == 'TEXT3D':
+          df_row['x'],df_row['y'],df_row['z'],df_row['w'],df_row['t'],df_row['p'] = obj.get_origin()
+          df_row['n'] = 0
+        else:
+          for n in range(obj.num_points()):
+            df_row['closed'] = obj.is_closed()
+            p = obj.get_point(n)
+            df_row['x'] = p.get_x()
+            df_row['y'] = p.get_y()
+            df_row['z'] = p.get_z()
+            df_row['w'] = p.get_w()
+            df_row['t'] = p.get_t()
+            df_row['p'] = p.get_name()
+            # point sequence withing this polygon
+            df_row['n'] = n
+        df.loc[row] = df_row
         oid += 1
 
   return df
@@ -955,11 +968,10 @@ def pd_load_shape(file_path):
   import shapefile
 
   shapes = shapefile.Reader(file_path, encodingErrors='replace')
-
-  df = pd.DataFrame(None, columns=smartfilelist.default_columns + ['oid','part','type','layer'])
-
+  columns = smartfilelist.default_columns + ['oid','part','type','layer']
   record_n = 0
   row = 0
+  rows = []
   for item in shapes.shapeRecords():
     # object without a valid layer name will have this default layer
     fields = item.record.as_dict()
@@ -969,32 +981,34 @@ def pd_load_shape(file_path):
     # create a object for each of these parts
     part_n = len(item.shape.parts)
     parts = item.shape.parts
+    has_z = hasattr(item.shape, 'z')
     # handle the case where there are no parts (point primitives, usually)
     if len(parts) == 0:
       parts = [0]
-
+    print(record_n, item.shape.shapeTypeName, p1)
+    r = pd.Series()
+    r['oid'] = record_n
+    r['type'] = item.shape.shapeTypeName
+    r['w'] = 0
+    points = item.shape.points
+    for k,v in fields.items():
+      r[k] = v
     for p in reversed(parts):
       part_n -= 1
       for n in range(p,p1):
-        for c in range(len(item.shape.points[n])):
-          df.loc[row, df.columns[c]] = item.shape.points[n][c]
-        for k,v in fields.items():
-          df.loc[row, k] = v
-
-        df.loc[row, 'n'] = n
-        df.loc[row, 'w'] = 0
-        df.loc[row, 't'] = n != p
-
-        df.loc[row, 'oid'] = record_n
-        df.loc[row, 'type'] = item.shape.shapeTypeName
-        df.loc[row, 'part'] = part_n
-
+        if has_z:
+          r['z'] = item.shape.z[n]
+        # x,y
+        for c in range(len(points[n])):
+          r[columns[c]] = points[n][c]
+        r['n'] = n - p
+        r['t'] = n != p
+        rows.append(r.copy())
         row += 1
-
       p1 = p
     record_n += 1
 
-  return df
+  return pd.DataFrame.from_records(rows)
 
 def pd_save_shape(df, df_path):
   import shapefile
@@ -1010,7 +1024,7 @@ def pd_save_shape(df, df_path):
 
   p = []
   n = len(df)
-  xyzwt = [_ for _ in 'xyzwt' if _ in df]
+  xyzwt = [_ for _ in 'xyz' if _ in df]
   for row in df.index[::-1]:
     if 'n' in df:
       n = df.loc[row, 'n']
@@ -1019,13 +1033,13 @@ def pd_save_shape(df, df_path):
 
     p.insert(0, row)
 
-
     if n == 0:
       pdata = df.loc[p, xyzwt].values.tolist()
       ptype = ''
       if 'type' in df:
         ptype = df['type'].max()
-      print(ptype)
+      #if ptype == 'LINEARRING':
+      #  shpw.polyz([pdata])
       if ptype.find('LINE') >= 0:
         shpw.linez([pdata])
       elif ptype.find('POINT') >= 0:
@@ -1064,18 +1078,30 @@ def pd_load_dxf(df_path):
     n = 0
     mode = ''
     text = ''
+    is_closed = 1
     points = []
     if e.dxftype() == 'POLYLINE':
       points = e.points()
       mode = e.get_mode()
+      is_closed = e.is_closed
     elif e.dxftype() == 'TEXT':
       points.append(e.insert)
       text = e.plain_text()
+    elif e.dxftype() == 'POINT':
+      points.append(e.dxf.location)
+      is_closed = 0
+    elif hasattr(e.dxf, 'elevation'):
+      z = e.dxf.elevation
+      if isinstance(z, tuple):
+        z = sum(z)
+      points = [(_[0], _[1], z) for _ in e.get_points()]
+      is_closed = e.is_closed
     else:
-      points = [(_[0], _[1], e.dxf.elevation) for _ in e.get_points()]
+      points = e.get_points()
+      is_closed = e.is_closed
 
     for p in points:
-      r.append(tuple(p) + (n, e.is_closed,e.dxf.layer, e.dxftype(), mode, text, e.dxf.handle,e.dxf.color))
+      r.append(tuple(p) + (n, is_closed, e.dxf.layer, e.dxftype(), mode, text, e.dxf.handle, e.dxf.color))
       n += 1
   c = ('x','y','z','n','closed','layer', 'type', 'mode','entityhandle', 'text', 'color')
   return pd.DataFrame(r, columns=c)
@@ -1083,9 +1109,13 @@ def pd_load_dxf(df_path):
 def pd_save_dxf(df, df_path):
   import pandas as pd
   import ezdxf
+  xyz = ['x','y']
+  if 'z' in df:
+    xyz.append('z')
 
   doc = ezdxf.new(setup=True)
   msp = doc.modelspace()
+
   n = len(df)
   p = []
   for row in df.index[::-1]:
@@ -1098,7 +1128,7 @@ def pd_save_dxf(df, df_path):
 
     if n == 0:
       attribs = dict([(_, df.loc[row, _]) for _ in ['layer','color','closed'] if _ in df])
-      pdata = df.loc[p, ['x','y','z']].values.tolist()
+      pdata = df.loc[p, xyz].values.tolist()
       ptype = ''
       msp.add_polyline3d(pdata, dxfattribs=attribs)
       p.clear()
@@ -1112,7 +1142,7 @@ def leapfrog_load_mesh(df_path):
 
   index = None
   binary = None
-
+  # read the structures from index section
   while True:
     if binary is None:
       line = file.readline()
@@ -1121,7 +1151,7 @@ def leapfrog_load_mesh(df_path):
       elif line.startswith(b'[binary]'):
         binary = line[8:]
       elif index is not None:
-        m = re.findall(rb'(\w+) (\w+) (\d+) (\d+)', line)
+        m = re.findall(rb'(\w+) (\w+) (\d+) ?(\d*)', line)
         if m:
           index.append(m[0])
     else:
@@ -1139,7 +1169,12 @@ def leapfrog_load_mesh(df_path):
   # maybe on some cases it contains rgb color?
   p = 12
   store = {}
+  # extract from the binary section the data for each structure 
   for part_name, part_type, part_wide, part_size in index:
+    # when part_wide is 1 its ommited in the msh header
+    if not part_size:
+      part_size = part_wide
+      part_wide = 1
     part_name = str(part_name, encoding='ascii')
     part_type = str(part_type, encoding='ascii').lower()
     part_wide = int(part_wide)
@@ -1155,9 +1190,13 @@ def leapfrog_load_mesh(df_path):
   return store.get('Location', []), store.get('Tri', [])
 
 def pd_load_mesh(df_path):
+  import numpy as np
   import pandas as pd
   nodes, faces = leapfrog_load_mesh(df_path)
-  return pd.DataFrame([nodes[int(f[n])] + (0,bool(n),n,1,f[n]) for f in faces for n in range(3)], columns=smartfilelist.default_columns + ['closed','node'])
+  # print(np.shape(nodes))
+  # print(np.shape(faces))
+  df_data = [nodes[int(f[n])] + (0,bool(n),n,1,f[n]) for f in faces for n in range(3)]
+  return pd.DataFrame(df_data, columns=smartfilelist.default_columns + ['closed','node'])
 
 def leapfrog_save_mesh(nodes, faces, df_path):
   import struct
@@ -1195,8 +1234,16 @@ def pd_save_spectral(df, df_path):
   import numpy as np
   # original image width and height are recoverable from the max x and max y
   wh = np.max(df, 0)
-  dfx = df.drop(df.columns[:2], 1)
-  im_out = np.reshape(dfx.values, (wh.values[0] + 1, wh.values[1] + 1, wh.size - 2))
+  #print(df)
+  df.drop(['x','y'], 1, inplace=True)
+  #print(df.shape, wh['x'], wh['y'], (wh['x'] + 1) * (wh['y'] + 1))
+  #im_out = np.reshape(dfx.values, (wh.values[0] + 1, wh.values[1] + 1, wh.size - 2))
+  #im_out = np.reshape(df.values, (wh['x'] + 1, wh['y'] + 1, wh.size - 2))
+  if wh.size > 3:
+    im_out = np.reshape(df.values, (wh['x'] + 1, wh['y'] + 1, wh.size - 2))
+  else:
+    im_out = np.reshape(df[df.columns[0]], (wh['x'] + 1, wh['y'] + 1))
+  #print(im_out.shape)
   skimage.io.imsave(df_path, im_out)
 
 
@@ -1278,7 +1325,7 @@ class smartfilelist(object):
         elif input_ext == ".msh" and s == 0:
           r = smartfilelist.default_columns + ['closed','node']
         elif input_ext == ".csv":
-          df = pd.read_csv(df_path, None, encoding="latin1", engine="python", nrows=s == 0 and 1 or None)
+          df = pd.read_csv(df_path, None, encoding="latin_1", engine="python", nrows=s == 0 and 1 or None)
           if s == 0:
             r = df.columns.tolist()
           if s == 1:
@@ -1295,6 +1342,8 @@ class smartfilelist(object):
           r = dm_field_list(df_path)
         elif input_ext == ".shp" and s == 0:
           r = shape_field_list(df_path)
+        elif input_ext == ".obj" and s == 0:
+          r = smartfilelist.default_columns + ['closed','node']
         elif input_ext == ".dxf" and s == 0:
           r = smartfilelist.default_columns + ['layer']
         elif input_ext == ".zip" and s == 0:
@@ -1303,7 +1352,7 @@ class smartfilelist(object):
         elif input_ext == ".png" and s == 0:
           r = list('xy0123456789')
         elif re.search(r'tiff?$', df_path, re.IGNORECASE):
-          r = ['x', 'y', 'xc', 'yc', '0', '1', '2', '3']
+          r = ['x', 'y', 'x0', 'y0', '0', '1', '2', '3']
         elif input_ext == ".vtk":
           r.append('volume')
           r.append('region')
@@ -1392,7 +1441,7 @@ class ScriptFrame(ttk.Frame):
       
   def copy(self):
     "Assemble the current parameters and copy the full command line to the clipboard"
-    cmd = " ".join(ClientScript.exe() + [ClientScript.file()] + self.getArgs(True))
+    cmd = " ".join(ClientScript.exe() + [ClientScript.file()] + self.getArgs())
     print(cmd)
     self.master.clipboard_clear()
     self.master.clipboard_append(cmd)
@@ -1410,12 +1459,13 @@ class ScriptFrame(ttk.Frame):
     return [self.children[t.name].get() for t in self.tokens]
   
   # get panel parameters as a flat string
-  def getArgs(self, quote_blank = False):
+  def getArgs(self):
     args = []
     for t in self.tokens:
       arg = str(self.children[t.name].get())
-      if (quote_blank and (len(arg) == 0 or ('"' not in arg and (' ' in arg or ';' in arg or "\\" in arg)))):
+      if len(arg) == 0 or not set(' ";%\\').isdisjoint(arg):
         arg = '"' + arg + '"'
+      print(arg)
       args.append(arg)
 
     return args
@@ -1809,6 +1859,16 @@ class tkTable(ttk.Labelframe):
       value = commalist()
       for i in range(len(self._cells)):
         value.append([self.get(i, j) for j in range(len(self._columns))])
+      # trim empty rows at the end
+      for i in range(len(value)-1,0,-1):
+        for j in range(len(value[i])):
+          if value[i][j]:
+            # outter loop will also break
+            break
+        else:
+          value.pop()
+          continue
+        break
   
     elif(row < len(self._cells) and col < len(self._columns)):
       value = self._cells[row][col].get()
@@ -1859,10 +1919,11 @@ class tkTable(ttk.Labelframe):
       self._cells[row].append(child)
   
   def delRow(self, index=0):
-    buffer = self.get()
-    del buffer[index]
+    rows = self.get()
+    if index < len(rows):
+      del rows[index]
     self.clear()
-    self.set(buffer)
+    self.set(rows)
   
   def clear(self):
     for i in range(len(self._cells)-1,-1,-1):
@@ -1944,6 +2005,7 @@ class AppTk(tk.Tk):
     menu_file.add_command(label='Load Metadata', command=self.importMetadata)
     menu_file.add_command(label='Exit', command=self.destroy)
     menu_help.add_command(label='Help', command=self.showHelp)
+    menu_help.add_command(label='Start Command Line Window', command=self.openCmd)
     menu_help.add_command(label='About', command=self.showAbout)
     self['menu'] = menubar
       
@@ -1970,6 +2032,10 @@ class AppTk(tk.Tk):
       os.system(script_pdf)
     else:
       messagebox.showerror('Help', 'Documentation file not found')
+  
+  def openCmd(self):
+    print("starting cmd")
+    os.system('start cmd /k python -V')
     
   def showAbout(self):
     messagebox.showinfo('About', 'Graphic User Interface to command line scripts')
