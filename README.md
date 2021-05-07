@@ -1,5 +1,5 @@
 # vtk_triangulate_points
-Creates simplified surfaces from dense point data.  
+Creates simplified surfaces from dense point clouds.  
 
 ## Objective
 This script provides a open source and simple way to create simplified/lightweight triangulated surfaces (and solids) from dense point data.  
