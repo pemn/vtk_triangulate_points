@@ -31,14 +31,14 @@ The script accepts multiple data file formats common in the Mining, Cartography 
 
 ## Screenshots
 ### Graphic User Interface
-![screenshot1](./assets/screenshot1.png?raw=true)
+![screenshot1](https://raw.githubusercontent.com/pemn/vtk_triangulate_points/main/assets/screenshot1.png)
 ### Example result using Grid method on bogota.tif
-![screenshot5](./assets/screenshot5.png?raw=true)
+![screenshot5](https://raw.githubusercontent.com/pemn/vtk_triangulate_points/main/assets/screenshot5.png)
 ### Example result using Delaunay 2d on point_wall.csv
-![screenshot2](./assets/screenshot2.png?raw=true)
+![screenshot2](https://raw.githubusercontent.com/pemn/vtk_triangulate_points/main/assets/screenshot2.png)
 ### Example Result using Delaunay 3d on point_wall.csv
-![screenshot3](./assets/screenshot3.png?raw=true)
+![screenshot3](https://raw.githubusercontent.com/pemn/vtk_triangulate_points/main/assets/screenshot3.png)
 ### Example Result using Outline on point_wall.csv
-![screenshot4](./assets/screenshot4.png?raw=true)
+![screenshot4](https://raw.githubusercontent.com/pemn/vtk_triangulate_points/main/assets/screenshot4.png)
 
 
