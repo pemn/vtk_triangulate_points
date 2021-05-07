@@ -38,7 +38,7 @@ The script accepts multiple data file formats common in the Mining, Cartography 
 ![screenshot2](./assets/screenshot2.png?raw=true)
 ### Example Result using Delaunay 3d on point_wall.csv
 ![screenshot3](./assets/screenshot3.png?raw=true)
-### Example Result using Outline on pont_wall.csv
+### Example Result using Outline on point_wall.csv
 ![screenshot4](./assets/screenshot4.png?raw=true)
 
 
