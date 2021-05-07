@@ -19,17 +19,18 @@ set PATH=%VULCAN_EXE%;%VULCAN_BIN%;%VULCAN_BIN%cygnus\bin;%VULCAN_BIN%other\x86;
 set PERLLIB=%VULCAN%lib\perl;%VULCAN%lib\perl\site\lib
 set VULCAN_VERSION_MAJOR=10
 :PYTHON_OK
+python -V
 if exist %~dpn0.py goto CLIENT_PY
 python.exe -m _gui "%~n0"
 if errorlevel 1 python -c "from tkinter.messagebox import showerror; showerror(message='_gui.py not found or outdated');"
 goto :EOF
 :CLIENT_PY
 python.exe %~dpn0.py
-if errorlevel 1 timeout 300
+if errorlevel 1 pause
 goto :EOF
 :NO_PYTHON
 echo "Python runtime not found!"
-timeout 300
+pause
 goto :EOF
 @end
 //!cscript

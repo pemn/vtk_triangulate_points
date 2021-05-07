@@ -53,7 +53,7 @@ def grid_points_2d(mesh, cell_size=10):
 
   radius = cell_size * 0.5
   tmat = np.full(cells.shape[0], np.nan)
-  print("sample min", np.min(mesh.points[:,2]), "max", np.max(mesh.points[:,2]))
+  print("n samples", mesh.points.size, "sample min", np.min(mesh.points[:,2]), "max", np.max(mesh.points[:,2]))
   while np.any(np.isnan(tmat)):
     # keep increasing radius until all cells have values
     radius *= 1.5
@@ -62,6 +62,7 @@ def grid_points_2d(mesh, cell_size=10):
     neigh.fit(mesh.points[:,:2], mesh.points[:,2])
     rmat = neigh.predict(cells[:,:2])
     np.putmask(tmat, np.isnan(tmat), rmat)
+
   print("regression min", np.min(tmat), "max", np.max(tmat))
   grid.cell_arrays['Elevation'] = tmat
   surf = grid.extract_surface()
