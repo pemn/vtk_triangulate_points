@@ -11,7 +11,7 @@ Download all files and run vtk_triangulate_points.py in your python enviroment o
 Ex.:  
 `python vtk_triangulate_points.py`  
 Python 3.5+ required. Recomended:  
-https://winpython.github.io/
+https://winpython.github.io/  
 The following modules are required:
 - pandas
 - sklearn
