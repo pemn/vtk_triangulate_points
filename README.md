@@ -10,8 +10,7 @@ The grid method uses a voxel approach where the space is divided in cells and a 
 Download all files and run vtk_triangulate_points.py in your python enviroment of choice. The graphic interface should appear.  
 Ex.:  
 `python vtk_triangulate_points.py`  
-Python 3.5+ required. Recomended:  
-https://winpython.github.io/  
+Python 3.5+ required. Recomended: WinPython64-3.8.x.x (https://winpython.github.io/)  
 The following modules are required:
 - pandas
 - sklearn
