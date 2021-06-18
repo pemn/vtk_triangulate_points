@@ -14,7 +14,7 @@ Python 3.5+ required. Recomended: WinPython64-3.8.x.x (https://winpython.github.
 The following modules are required:
 - pandas
 - sklearn
-- pyvista
+- pyvista  
 Of those only pyvista is not commonly present is most python distros.
 ## Features
  - Multiple data file formats for input and output
