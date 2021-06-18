@@ -15,6 +15,7 @@ The following modules are required:
 - pandas
 - sklearn
 - pyvista  
+  
 Of those only pyvista is not commonly present is most python distros.
 ## Features
  - Multiple data file formats for input and output
