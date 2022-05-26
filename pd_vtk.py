@@ -319,7 +319,7 @@ def vtk_df_to_mesh(df, xyz = None, dropna = False):
 
   pdata = df[xyz]
   if dropna:
-    pdata.dropna(inplace=True)
+    pdata = pdata.dropna()
   # TODO: fix NaN without drop
   #print(pdata)
 

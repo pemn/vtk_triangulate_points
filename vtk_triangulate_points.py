@@ -44,32 +44,40 @@ from _gui import usage_gui, pd_load_dataframe, pd_save_dataframe
 import vtk
 import pyvista as pv
 from pd_vtk import pv_save, vtk_plot_meshes, vtk_df_to_mesh, vtk_mesh_to_df, vtk_Voxel
-from sklearn.neighbors import RadiusNeighborsRegressor
+from sklearn.neighbors import KNeighborsRegressor
 
-def grid_points_2d(mesh, cell_size=10, max_search = None):
+def grid_points_2d(mesh, cell_size=10, n_neighbors = 3):
   grid = vtk_Voxel.from_mesh(mesh, cell_size, 2)
 
   cells = grid.cell_centers().points
 
   radius = cell_size * 0.5
-  tmat = np.full(cells.shape[0], np.nan)
+  #tmat = np.full(cells.shape[0], np.nan)
   print("n samples", mesh.points.size, "sample min", np.min(mesh.points[:,2]), "max", np.max(mesh.points[:,2]))
-  while np.any(np.isnan(tmat)):
-    # keep increasing radius until all cells have values
-    radius *= 1.5
-    print("RadiusNeighborsRegressor =",radius,"m")
-    neigh = RadiusNeighborsRegressor(radius, 'distance')
-    neigh.fit(mesh.points[:,:2], mesh.points[:,2])
-    rmat = neigh.predict(cells[:,:2])
-    np.putmask(tmat, np.isnan(tmat), rmat)
-    if max_search is not None:
-      max_search -= 1
-      if max_search <= 0:
-        break
+  r = KNeighborsRegressor(n_neighbors)
+  r.fit(mesh.points[:,:2], mesh.points[:,2])
+  tmat = r.predict(cells[:,:2])
+  #np.putmask(tmat, np.isnan(tmat), rmat)
+  # while np.any(np.isnan(tmat)):
+  #   # keep increasing radius until all cells have values
+  #   radius *= 1.5
+  #   print("RadiusNeighborsRegressor =",radius,"m")
+  #   neigh = RadiusNeighborsRegressor(radius, 'distance')
+  #   neigh.fit(mesh.points[:,:2], mesh.points[:,2])
+  #   rmat = neigh.predict(cells[:,:2])
+  #   np.putmask(tmat, np.isnan(tmat), rmat)
+  #   if max_search is not None:
+  #     max_search -= 1
+  #     if max_search <= 0:
+  #       break
 
-  print("regression min", np.min(tmat), "max", np.max(tmat))
+  print("regression min", np.nanmin(tmat), "max", np.nanmax(tmat))
   grid.cell_arrays['Elevation'] = tmat
+  #print(grid)
+  #grid = grid.threshold(np.nanmin(tmat))
+  #print(grid)
   surf = grid.extract_surface()
+  #print(surf)
   surf = surf.ctp()
   surf.points[:, 2] = surf.point_arrays['Elevation']
   
@@ -107,7 +115,8 @@ def main(input_points, mode, cell_size, convert_to_triangles, output, display):
   elif mode == 'delaunay_3d':
     grid = mesh.delaunay_3d()
   elif mode == 'grid':
-    grid = grid_points_2d(mesh, float(cell_size), 3)
+    #grid = grid_points_2d(mesh, float(cell_size))
+    grid = grid_points_2d(mesh, float(cell_size), 1)
     if int(convert_to_triangles):
       grid = grid.delaunay_2d()
   else:
