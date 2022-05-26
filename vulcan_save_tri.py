@@ -42,12 +42,15 @@ def vulcan_save_asc(nodes, faces, output):
     print("Index : %06d, %06d, %06d" % tuple(np.add(f,(1,1,1))), file=of)
 
 def vulcan_save_tri(nodes, faces, output, colour = 1):
-  import vulcan
+  try:
+    import vulcan
+  except:
+    print("vulcan module not found. failed to save file:", output)
+    return
   tri = vulcan.triangulation("", "w")
   tri.set_colour(colour)
   for k in nodes:
     tri.add_node(*k)
-    # tri.add_node(k[0], k[1], k[2])
   for k in faces:
     tri.add_face(*map(int, k))
   tri.save(output)
@@ -107,7 +110,7 @@ def vulcan_save_obj(nodes, faces, texture, output_path, rows_cols = None):
   print("map_Kd", output_img, file=of)
   of.close()
 
-def get_boilerplate_json(output_img, output_00t):
+def get_boilerplate_ireg_json(output_img, output_00t):
   return {
     "properties": 
     {
@@ -130,7 +133,7 @@ def vulcan_register_image(output_00t, texture, xyz, output_path):
   import json
   output_img = os.path.splitext(output_path)[0] + '.png'
 
-  spec_json = get_boilerplate_json(output_img, output_00t)
+  spec_json = get_boilerplate_ireg_json(output_img, output_00t)
   skimage.io.imsave(output_img, texture)
   spec_json["points"] = []
   spec_json["points"].append({"image": [0,0,0],"world": xyz[0]})
@@ -143,7 +146,7 @@ def vulcan_register_image(output_00t, texture, xyz, output_path):
 # save a triangulation as a Vulcan IREG (ireg, 00t, png)
 def vulcan_save_ireg(nodes, faces, texture, output_path, rows_cols = None):
   import json
-  spec_json = get_boilerplate_json(output_img, output_00t)
+  spec_json = get_boilerplate_ireg_json(output_img, output_00t)
 
   output_00t = os.path.splitext(output_path)[0] + '.00t'
   vulcan_save_tri(nodes, faces, output_00t)
@@ -275,4 +278,19 @@ def pd_save_geotiff(df, output_path):
   for i in range(ds.RasterCount):
     ds.GetRasterBand(i+1).WriteArray(df[str(i)].values.reshape((nx,ny)).T)
   ds.FlushCache()
+
+
+def obj_mesh_to_ireg(od, output_img, output_path):
+  import json
+  output_00t = os.path.splitext(output_path)[0] + '.00t'
+  vulcan_save_tri(od.get('v'), od.get('f'), output_00t)
+  spec_json = get_boilerplate_ireg_json(output_img, output_00t)
+  nodes = od.get('v')
+  vt = od.get('vt')
+  spec_json["points"] = [{"image": vt[i],"world": nodes[i]} for i in range(len(vt))]
+
+  open(output_path, 'w').write(json.dumps(spec_json, sort_keys=True, indent=4).replace(': NaN', ' = u').replace('": ', '" = '))
+
+if __name__=="__main__":
+  pass
 

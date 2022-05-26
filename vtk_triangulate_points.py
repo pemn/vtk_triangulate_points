@@ -41,9 +41,9 @@ import re
 sys.path.insert(0, os.path.splitext(sys.argv[0])[0] + '.pyz')
 from _gui import usage_gui, pd_load_dataframe, pd_save_dataframe
 
-from pd_vtk import pv_save, vtk_plot_meshes, vtk_df_to_mesh, vtk_mesh_to_df, vtk_Voxel
 import vtk
 import pyvista as pv
+from pd_vtk import pv_save, vtk_plot_meshes, vtk_df_to_mesh, vtk_mesh_to_df, vtk_Voxel
 from sklearn.neighbors import RadiusNeighborsRegressor
 
 def grid_points_2d(mesh, cell_size=10):
@@ -91,6 +91,7 @@ def grid_points_rbf(mesh, cell_size=10, function='grid'):
 def main(input_points, mode, cell_size, convert_to_triangles, output, display):
   df = pd_load_dataframe(input_points)
   mesh = vtk_df_to_mesh(df)
+  
   if not cell_size:
     cell_size = 10
   mesh = mesh.elevation()
@@ -115,7 +116,7 @@ def main(input_points, mode, cell_size, convert_to_triangles, output, display):
     pd_save_dataframe(df, output)
 
   if int(display):
-    vtk_plot_meshes([mesh, grid])
+    vtk_plot_meshes([mesh, grid], True)
 
 if __name__=="__main__":
   usage_gui(__doc__)

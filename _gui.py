@@ -18,34 +18,35 @@ limitations under the License.
 
 https://github.com/pemn/usage-gui
 ---------------------------------
-
 '''
 
-### UTIL { ###
+__version__ = 20211111
 
-import sys, os, os.path, time
-# import modules from a pyz (zip) file with same name as scripts
-# sys.path.insert(0, os.path.splitext(sys.argv[0])[0] + '.pyz')
-from PIL import Image, ImageDraw
-
+### { HOUSEKEEPING
+import sys, os, os.path, time, logging
 # fix for wrong path of pythoncomXX.dll in vulcan 10.1.5
 if 'VULCAN_EXE' in os.environ:
   os.environ['PATH'] += ';' + os.environ['VULCAN_EXE'] + "/Lib/site-packages/pywin32_system32"
+### } HOUSEKEEPING
 
+### { UTIL
+logging.basicConfig(format='%(message)s', level=99)
+log = lambda *argv: logging.log(99, ' '.join(map(str,argv)))
 
 def pyd_zip_extract():
   ''' embedded module unpacker '''
   zip_path = os.path.splitext(sys.argv[0])[0] + '.pyz'
   if not os.path.exists(zip_path):
     return
-  platform_arch = '.cp%s%s-win_amd64' % tuple(sys.version.split('.')[:2])
-  pyd_path = os.environ['TEMP'] + "/pyz_" + platform_arch
+  platform_arch = '.cp%d%d-win_amd64' % (sys.hexversion >> 24, sys.hexversion >> 16 & 0xFF)
+
+  pyd_path = os.environ.get('TEMP', '.') + "/pyz_" + platform_arch
 
   if not os.path.isdir(pyd_path):
     os.mkdir(pyd_path)
 
   sys.path.insert(0, pyd_path)
-  os.environ['PATH'] += ';' + pyd_path
+  os.environ['PATH'] = os.environ.get('PATH', '') + ';' + pyd_path
 
   import zipfile
   zip_root = zipfile.ZipFile(zip_path)
@@ -59,155 +60,62 @@ def pyd_zip_extract():
           subzip = os.path.join(pyd_path, name)
           zipfile.ZipFile(subzip).extractall(pyd_path)
 
-def usage_gui(usage = None):
-  '''
-  this function handles most of the details required when using a exe interface
-  '''
-  # we already have argument, just proceed with execution
-  if(len(sys.argv) > 1):
-    # traps help switches: /? -? /h -h /help -help
-    if(usage is not None and re.match(r'[\-/](?:\?|h|help)$', sys.argv[1])):
-      print(usage)
-    elif 'main' in globals():
-      main(*sys.argv[1:])
+
+def list_any(l):
+  return sum(map(bool, l))
+
+# subclass of list with a string representation compatible to perl argument input
+# which expects a comma separated list with semicolumns between rows
+class commalist(list):
+  _rowfs = ";"
+  _colfs = ","
+  def parse(self, arg):
+    "fill this instance with data from a string"
+    if isinstance(arg, str):
+      for row in arg.split(self._rowfs):
+        self.append(row.split(self._colfs))
     else:
-      print("main() not found")
-  else:
-    AppTk(usage).mainloop()
+      self = commalist(arg)
 
-def pd_load_dataframe(df_path, condition = '', table_name = None, vl = None, keep_null = False):
-  '''
-  convenience function to return a dataframe based on the input file extension
-  csv: ascii tabular data
-  xls: excel workbook
-  bmf: vulcan block model
-  dgd.isis: vulcan design object layer
-  isis: vulcan generic database
-  00t: vulcan triangulation
-  dm: datamine generic database
-  shp: ESRI shape file
-  '''
-  import pandas as pd
-  if table_name is None:
-    df_path, table_name = table_name_selector(df_path)
+    return self
 
-  df = None
-  if not os.path.exists(df_path):
-    print(df_path,"not found")
-    df = pd.DataFrame()
-  elif re.search(r'(csv|asc|prn|txt)$', df_path, re.IGNORECASE):
-    df = pd.read_csv(df_path, None, engine='python', encoding="latin_1")
-  elif re.search(r'xls\w?$', df_path, re.IGNORECASE):
-    df = pd_load_excel(df_path, table_name)
-  elif df_path.lower().endswith('bmf'):
-    df = pd_load_bmf(df_path, condition, vl)
-    condition = ''
-  elif df_path.lower().endswith('dgd.isis'):
-    df = pd_load_dgd(df_path, table_name)
-  elif df_path.lower().endswith('isis'):
-    df = pd_load_isisdb(df_path, table_name)
-  elif df_path.lower().endswith('00t'):
-    df = pd_load_tri(df_path)
-  elif df_path.lower().endswith('00g'):
-    df = pd_load_grid(df_path)
-  elif df_path.lower().endswith('dm'):
-    df = pd_load_dm(df_path)
-  elif df_path.lower().endswith('shp'):
-    df = pd_load_shape(df_path)
-  elif df_path.lower().endswith('dxf'):
-    df = pd_load_dxf(df_path)
-  elif df_path.lower().endswith('json'):
-    df = pd.read_json(df_path)
-  elif df_path.lower().endswith('jsdb'):
-    import jsdb_driver
-    df = jsdb_driver.pd_load_database(df_path)
-  elif df_path.lower().endswith('msh'):
-    df = pd_load_mesh(df_path)
-  elif df_path.lower().endswith('png'):
-    df = pd_load_spectral(df_path)
-  elif df_path.lower().endswith('obj'):
-    df = pd_load_obj(df_path)
-  elif re.search(r'tiff?$', df_path, re.IGNORECASE):
-    import vulcan_save_tri
-    df = vulcan_save_tri.pd_load_geotiff(df_path)
-  else:
-    df = pd.DataFrame()
+  def __str__(self):
+    r = ""
+    # custom join
+    for i in self:
+      if(isinstance(i, list)):
+        i = self._colfs.join(i)
+      if len(r) > 0:
+        r += self._rowfs
+      r += i
+    return r
+  def __hash__(self):
+    return len(self)
 
-  if len(condition):
-    df.query(condition, True)
-  # replace -99 with NaN, meaning they will not be included in the stats
-  if not int(keep_null):
-    df.mask(df == -99, inplace=True)
+  # sometimes we have one element, but that element is ""
+  # unless we override, this will evaluate as True
+  def __bool__(self):
+    return len(str(self)) > 0
+  # compatibility if the user try to treat us as a real string
+  def split(self, *args):
+    return [",".join(_) for _ in self]
 
-  return df
-
-# temporary backward compatibility
-pd_get_dataframe = pd_load_dataframe
-
-def pd_save_dataframe(df, df_path, sheet_name='Sheet1'):
-  import pandas as pd
-  ''' save a dataframe to one of the supported formats '''
-  if df.size:
-    if df.ndim == 1:
-      # we got a series somehow?
-      df = df.to_frame()
-    if not str(df.index.dtype).startswith('int'):
-      levels = list(set(df.index.names).intersection(df.columns))
-      if len(levels):
-        df.reset_index(levels, drop=True, inplace=True)
-      df.reset_index(inplace=True)
-    while isinstance(df.columns, pd.MultiIndex):
-      df.columns = df.columns.droplevel(1)
-    if isinstance(df_path, pd.ExcelWriter) or df_path.lower().endswith('.xlsx'):
-      df.to_excel(df_path, index=False, sheet_name=sheet_name)
-    elif df_path.lower().endswith('dgd.isis'):
-      pd_save_dgd(df, df_path)
-    elif df_path.lower().endswith('isis'):
-      pd_save_isisdb(df, df_path)
-    elif df_path.lower().endswith('bmf'):
-      pd_save_bmf(df, df_path)
-    elif df_path.lower().endswith('shp'):
-      pd_save_shape(df, df_path)
-    elif df_path.lower().endswith('dxf'):
-      pd_save_dxf(df, df_path)
-    elif df_path.lower().endswith('00t'):
-      pd_save_tri(df, df_path)
-    elif df_path.lower().endswith('json'):
-      df.to_json(df_path, 'records')
-    elif df_path.lower().endswith('jsdb'):
-      import jsdb_driver
-      jsdb_driver.pd_save_database(df, df_path)
-    elif df_path.lower().endswith('msh'):
-      pd_save_mesh(df, df_path)
-    elif df_path.lower().endswith('obj'):
-      pd_save_obj(df, df_path)
-    elif df_path.lower().endswith('png'):
-      pd_save_spectral(df, df_path)
-    elif re.search(r'tiff?$', df_path, re.IGNORECASE):
-      import vulcan_save_tri
-      vulcan_save_tri.pd_save_geotiff(df, df_path)
-    elif len(df_path):
-      df.to_csv(df_path, index=False)
-    else:
-      print(df.to_string(index=False))
-  else:
-    print(df_path,"empty")
-
-def pd_synonyms(df, synonyms):
+def pd_synonyms(df, synonyms, default = 0):
   ''' from a list of synonyms, find the best candidate amongst the dataframe columns '''
-  if len(synonyms) == 0:
-    return df.columns[0]
-  # first try a direct match
-  for v in synonyms:
-    if v in df:
-      return v
-  # second try a case insensitive match
-  for v in synonyms:
-    m = df.columns.str.match(v, False)
-    if m.any():
-      return df.columns[m.argmax()]
+  if len(synonyms):
+    # first try a direct match
+    for v in synonyms:
+      if v in df:
+        return v
+    # second try a case insensitive match
+    for v in synonyms:
+      m = df.columns.str.match(v, False)
+      if m.any():
+        return df.columns[m.argmax()]
   # fail safe to the first column
-  return df.columns[0]
+  if default is not None:
+    return df.columns[default]
+  return None
 
 def table_name_selector(df_path, table_name = None):
   if table_name is None:
@@ -267,188 +175,134 @@ def bmf_wait_lock(path, unlock = False, tries = None):
         
         time.sleep(1)
 
-### } UTIL ###
+### } UTIL
 
-## GUI { ###
-import re
-import tkinter as tk
-import tkinter.ttk as ttk
-import tkinter.messagebox as messagebox
-import tkinter.filedialog as filedialog
-import pickle
-import threading
+### { IO
 
-class ClientScript(list):
-  '''Handles the script with the same name as this interface file'''
-  # magic signature that a script file must have for defining its gui
-  _magic = r"usage:\s*\S+\s*([^\"\'\\]+)"
-  _usage = None
-  _type = None
-  _file = None
-  _base = None
-  @classmethod
-  def init(cls, client):
-    cls._file = client
-    cls._base = os.path.splitext(cls._file)[0]
-    # HARDCODED list of supporte file types
-    # to add a new file type, just add it to the list
-    for ext in ['csh','lava','pl','bat','vbs','js']:
-      if os.path.exists(cls._base + '.' + ext):
-        cls._file = cls._base + '.' + ext
-        cls._type = ext.lower()
-        break
+def pd_load_dataframe(df_path, condition = '', table_name = None, vl = None, keep_null = False):
+  '''
+  convenience function to return a dataframe based on the input file extension
+  csv: ascii tabular data
+  xls: excel workbook
+  bmf: vulcan block model
+  dgd.isis: vulcan design object layer
+  isis: vulcan generic database
+  00t: vulcan triangulation
+  dm: datamine generic database
+  shp: ESRI shape file
+  '''
+  import pandas as pd
+  # early exit for cases where a script is calling another
+  if isinstance(df_path, pd.DataFrame):
+    return df_path
+  if table_name is None:
+    df_path, table_name = table_name_selector(df_path)
+  df = None
+  if not os.path.exists(df_path):
+    print(df_path,"not found")
+    df = pd.DataFrame()
+  elif re.search(r'(csv|asc|prn|txt)$', df_path, re.IGNORECASE):
+    df = pd.read_csv(df_path, None, engine='python')
+  elif re.search(r'xls\w?$', df_path, re.IGNORECASE):
+    df = pd_load_excel(df_path, table_name)
+  elif df_path.lower().endswith('bmf'):
+    df = pd_load_bmf(df_path, condition, vl)
+    condition = ''
+  elif df_path.lower().endswith('dgd.isis'):
+    df = pd_load_dgd(df_path, table_name)
+  elif df_path.lower().endswith('isis'):
+    df = pd_load_isisdb(df_path, table_name)
+  elif df_path.lower().endswith('00t'):
+    df = pd_load_tri(df_path)
+  elif df_path.lower().endswith('00g'):
+    df = pd_load_grid(df_path)
+  elif df_path.lower().endswith('dm'):
+    df = pd_load_dm(df_path)
+  elif df_path.lower().endswith('shp'):
+    df = pd_load_shape(df_path)
+  elif df_path.lower().endswith('dxf'):
+    df = pd_load_dxf(df_path)
+  elif df_path.lower().endswith('json'):
+    df = pd.read_json(df_path)
+  elif df_path.lower().endswith('jsdb'):
+    import jsdb_driver
+    df = jsdb_driver.pd_load_database(df_path)
+  elif df_path.lower().endswith('msh'):
+    df = pd_load_mesh(df_path)
+  elif df_path.lower().endswith('png'):
+    df = pd_load_spectral(df_path)
+  elif df_path.lower().endswith('obj'):
+    df = pd_load_obj(df_path)
+  elif re.search(r'tiff?$', df_path, re.IGNORECASE):
+    import vulcan_save_tri
+    df = vulcan_save_tri.pd_load_geotiff(df_path)
+  else:
+    df = pd.DataFrame()
 
-  @classmethod
-  def exe(cls):
-    if cls._type == "csh":
-      return ["csh","-f"]
-    if cls._type == "bat":
-      return ["cmd", "/c"]
-    if cls._type == "vbs" or cls._type == "js":
-      return ["cscript", "/nologo"]
-    if cls._type == "lava" or cls._type == "pl":
-      return ["perl"]
-    if cls._type is None:
-      return ["python"]
-    return []
+  if not int(keep_null):
+    df.mask(df == -99, inplace=True)
 
-  @classmethod
-  def run(cls, script):
-    print("# %s %s started" % (time.strftime('%H:%M:%S'), cls.file()))
-    p = None
-    if cls._type is None:
-      import multiprocessing
-      p = multiprocessing.Process(None, main, None, script.get())
-      p.start()
-      p.join()
-      p = p.exitcode
+  # replace -99 with NaN, meaning they will not be included in the stats
+  if len(condition):
+    df.query(condition, True)
+
+  return df
+
+def pd_flat_columns(df):
+  """ convert a column multi index into flat concatenated strings """
+  fci = [" ".join(map(str,_)) for _ in df.columns.to_flat_index()]
+  df.set_axis(fci, 1, True)
+
+def pd_save_dataframe(df, df_path, sheet_name='Sheet1'):
+  import pandas as pd
+  ''' save a dataframe to one of the supported formats '''
+  if df.size:
+    if df.ndim == 1:
+      # we got a series somehow?
+      df = df.to_frame()
+    if not str(df.index.dtype).startswith('int'):
+      levels = list(set(df.index.names).intersection(df.columns))
+      if len(levels):
+        df.reset_index(levels, drop=True, inplace=True)
+      df.reset_index(inplace=True)
+    if isinstance(df.columns, pd.MultiIndex):
+      print("multi")
+      pd_flat_columns(df)
+    if isinstance(df_path, pd.ExcelWriter) or df_path.lower().endswith('.xlsx'):
+      # multiple excel sheets mode
+      df.to_excel(df_path, index=False, sheet_name=sheet_name)
+    elif df_path.lower().endswith('dgd.isis'):
+      pd_save_dgd(df, df_path)
+    elif df_path.lower().endswith('isis'):
+      pd_save_isisdb(df, df_path)
+    elif df_path.lower().endswith('bmf'):
+      pd_save_bmf(df, df_path)
+    elif df_path.lower().endswith('shp'):
+      pd_save_shape(df, df_path)
+    elif df_path.lower().endswith('dxf'):
+      pd_save_dxf(df, df_path)
+    elif df_path.lower().endswith('00t'):
+      pd_save_tri(df, df_path)
+    elif df_path.lower().endswith('json'):
+      df.to_json(df_path, 'records')
+    elif df_path.lower().endswith('jsdb'):
+      import jsdb_driver
+      jsdb_driver.pd_save_database(df, df_path)
+    elif df_path.lower().endswith('msh'):
+      pd_save_mesh(df, df_path)
+    elif df_path.lower().endswith('obj'):
+      pd_save_obj(df, df_path)
+    elif df_path.lower().endswith('png'):
+      pd_save_spectral(df, df_path)
+    elif re.search(r'tiff?$', df_path, re.IGNORECASE):
+      import vulcan_save_tri
+      vulcan_save_tri.pd_save_geotiff(df, df_path)
+    elif len(df_path):
+      df.to_csv(df_path, index=False)
     else:
-      import subprocess
-      # create a new process and passes the arguments on the command line
-      args = cls.exe() + [cls._file] + script.getArgs()
-      p = subprocess.Popen(" ".join(args))
-      p.wait()
-      p = p.returncode
-
-    if not p:
-      print("# %s %s finished" % (time.strftime('%H:%M:%S'), cls.file()))
-    return p
-
-  @classmethod
-  def type(cls):
-    return cls._type
-  
-  @classmethod
-  def base(cls):
-    return cls._base
-  
-  @classmethod
-  def file(cls, ext = None):
-    if ext is not None:
-      return cls._base + '.' + ext
-    return os.path.basename(cls._file)
-  
-  @classmethod
-  def args(cls, usage = None):
-    r = []
-    if usage is None and cls._type is not None:
-      usage = cls.parse()
-
-    if usage:
-      m = re.search(cls._magic, usage, re.IGNORECASE)
-      if(m):
-        cls._usage = m.group(1)
-    
-    if cls._usage is None or len(cls._usage) == 0:
-      r = ['arguments']
-    else:
-      r = cls._usage.split()
-    return r
-
-  @classmethod
-  def fields(cls, usage = None):
-    return [re.match(r"^\w+", _).group(0) for _ in cls.args(usage)]
-
-  @classmethod
-  def parse(cls):
-    if os.path.exists(cls._file):
-      with open(cls._file, 'r', encoding='latin_1') as file:
-        for line in file:
-          if re.search(cls._magic, line, re.IGNORECASE):
-            return line
-    return None
-
-  @classmethod
-  def header(cls):
-    r = ""
-    if os.path.exists(cls._file):
-      with open(cls._file, 'r') as file:
-        for line in file:
-          if(line.startswith('#!')):
-            continue
-          m = re.match(r'#\s*(.+)', line)
-          if m:
-            r += m.group(1) + "\n"
-          else:
-            break
-    return r
-
-class Settings(str):
-  '''provide persistence for control values using pickled ini files'''
-  _ext = '.ini'
-  def __new__(cls, value=''):
-    if len(value) == 0:
-      value = os.path.splitext(os.path.realpath(sys.argv[0]))[0]
-    if not value.endswith(cls._ext):
-      value += cls._ext
-
-    return super().__new__(cls, value)
-
-  def save(self, obj):
-    pickle.dump(obj, open(self,'wb'), 4)
-    
-  def load(self):
-    if os.path.exists(self):
-      return pickle.load(open(self, 'rb'))
-    return {}
-
-# subclass of list with a string representation compatible to perl argument input
-# which expects a comma separated list with semicolumns between rows
-# this is to mantain compatibility with older versions of the usage gui
-class commalist(list):
-  _rowfs = ";"
-  _colfs = ","
-  def parse(self, arg):
-    "fill this instance with data from a string"
-    if isinstance(arg, str):
-      for row in arg.split(self._rowfs):
-        self.append(row.split(self._colfs))
-    else:
-      self = commalist(arg)
-
-    return self
-
-  def __str__(self):
-    r = ""
-    # custom join
-    for i in self:
-      if(isinstance(i, list)):
-        i = self._colfs.join(i)
-      if len(r) > 0:
-        r += self._rowfs
-      r += i
-    return r
-  def __hash__(self):
-    return len(self)
-
-  # sometimes we have one element, but that element is ""
-  # unless we override, this will evaluate as True
-  def __bool__(self):
-    return len(str(self)) > 0
-  # compatibility if the user try to treat us as a real string
-  def split(self, *args):
-    return [",".join(_) for _ in self]
-
+      print(df.to_string(index=False))
+  else:
+    print(df_path,"empty")
 
 def dgd_list_layers(file_path):
   ''' return the list of layers stored in a dgd '''
@@ -466,7 +320,6 @@ def dgd_list_layers(file_path):
   return r
 
 # Vulcan BMF
-
 def bmf_field_list(file_path):
   import vulcan
   bm = vulcan.block_model(file_path)
@@ -562,10 +415,8 @@ def pd_save_bmf(df, df_path):
     for v in vl:
       if df.dtypes[v] == 'object':
         bm.add_variable(v, 'name', 'n', '')
-        # bm.put_data_string(v.lower(), df[v])
       else:
         bm.add_variable(v, 'float', '-99', '')
-        # bm.put_data(v.lower(), df[v])
     bm.write()
     print("index model")
     bm.index_model()
@@ -703,10 +554,11 @@ def pd_load_dgd(df_path, layer_dgd = None):
 
   dgd = vulcan.dgd(df_path)
 
+  row = 0
   if dgd.is_open():
     layers = layer_dgd
     if layer_dgd is None:
-      layers = dgd.list_layers()
+      layers = dgd_list_layers(df_path)
     elif not isinstance(layer_dgd, list):
       layers = [layer_dgd]
 
@@ -716,7 +568,6 @@ def pd_load_dgd(df_path, layer_dgd = None):
       layer = dgd.get_layer(l)
       oid = 0
       for obj in layer:
-        row = len(df)
         df_row = pd.Series()
         df_row['oid'] = str(oid)
         df_row['layer'] = layer.get_name()
@@ -725,6 +576,8 @@ def pd_load_dgd(df_path, layer_dgd = None):
         if obj.get_type() == 'TEXT3D':
           df_row['x'],df_row['y'],df_row['z'],df_row['w'],df_row['t'],df_row['p'] = obj.get_origin()
           df_row['n'] = 0
+          df.loc[row] = df_row
+          row += 1
         else:
           for n in range(obj.num_points()):
             df_row['closed'] = obj.is_closed()
@@ -735,9 +588,10 @@ def pd_load_dgd(df_path, layer_dgd = None):
             df_row['w'] = p.get_w()
             df_row['t'] = p.get_t()
             df_row['p'] = p.get_name()
-            # point sequence withing this polygon
+            # point sequence within this polygon
             df_row['n'] = n
-        df.loc[row] = df_row
+            df.loc[row] = df_row
+            row += 1
         oid += 1
 
   return df
@@ -746,10 +600,17 @@ def pd_save_dgd(df, df_path):
   ''' create vulcan objects from a dataframe '''
   import vulcan
   obj_attr = ['value', 'name', 'group', 'feature', 'description']
+  xyz = ['x','y','z']
+  if 'w' in df:
+    xyz.append('w')
+  if 't' in df:
+    xyz.append('t')
+
+
   dgd = vulcan.dgd(df_path, 'w' if os.path.exists(df_path) else 'c')
 
   layer_cache = dict()
-  
+
   c = []
   n = None
   for row in df.index[::-1]:
@@ -767,7 +628,7 @@ def pd_save_dgd(df, df_path):
     # last row special case
     c.insert(0, row)
     if n == 0:
-      points = df.take(c).xs(['x','y','z','w','t'], axis=1).values.tolist()
+      points = df.loc[c, xyz].values.tolist()
       obj = vulcan.polyline(points)
       if 'closed' in df:
         obj.set_closed(bool(df.loc[row, 'closed']))
@@ -782,7 +643,6 @@ def pd_save_dgd(df, df_path):
       layer_cache[layer_name].append(obj)
       c.clear()
 
-
   for v in layer_cache.values():
     dgd.save_layer(v)
 
@@ -792,65 +652,77 @@ def pd_load_tri(df_path):
   import numpy as np
   import pandas as pd
   tri = vulcan.triangulation(df_path)
+
+  ta = vulcan.tri_attributes(df_path)
+  
+
   cv = tri.get_colour()
   cn = 'colour'
   if vulcan.version_major >= 11 and tri.is_rgb():
     cv = np.sum(np.multiply(tri.get_rgb(), [2**16,2**8,1]))
     cn = 'rgb'
+  #print("pd_load_tri nodes",tri.n_nodes(),"faces",tri.n_faces())
+  #df = [tri.get_node(int(f[n])) + [0,bool(n),n,1,f[n],cv] for f in tri.get_faces() for n in range(3)], 
+  # orphan nodes
+  df =  nodes_faces_to_df(tri.get_vertices(), tri.get_faces())
+  if ta.is_ok():
+    for k,v in ta.get_hash().items():
+      df[k] = v
 
-  return pd.DataFrame([tri.get_node(int(f[n])) + [0,bool(n),n,1,f[n],cv] for f in tri.get_faces() for n in range(3)], columns=smartfilelist.default_columns + ['closed','node',cn])
+  return df
+
 
 def df_to_nodes_faces_simple(df, node_name = 'node', xyz = ['x','y','z']):
   ''' fast version only supporting a single triangulation '''
-  print("# df_to_nodes_faces_simple")
-  c = time.time()
-  import numpy as np
-  nodes = np.zeros((int(df[node_name].max() + 1), len(xyz)))
-  # we must use a loop since nodes may be duplicated
-  for i,row in df.iterrows():
-    nodes[int(row[node_name])] = row[xyz]
+  import pandas as pd
+
+  # nodes are duplicated for each face in df
+  # create a list where they are unique again
+  i_row = df[node_name].drop_duplicates().sort_values()
+  nodes = df.loc[i_row.index, xyz]
 
   face_size = 3
-  if 'n' in df:
-    face_size = df['n'].max() + 1
-  # faces are unique so we can use the input data
-  faces = df[node_name].values.reshape((len(df) // face_size, face_size))
+  if 'n' in df and len(df):
+    # handle orphan nodes
+    face_n = df['n'].dropna()
+    face_size = int(face_n.max()) + 1
+    faces = df.loc[face_n.index, node_name].values.reshape((len(face_n) // face_size, face_size))
+  else:
+    # faces are unique so we can use the input data
+    faces = df[node_name].values.reshape((len(df) // face_size, face_size))
 
-  print("# df_to_nodes_faces_simple",time.time() - c)
-  return nodes, faces
+  return nodes.values, faces
 
-def df_to_nodes_faces(df, node_name = 'node', xyz = ['x','y','z']):
-  ''' 
-  extracts triangles from a dataframe contaning node numbers and faces indexes
-  slow, use the _simple version if node reindexing is not required
-  '''
-  if 'n' not in df or 'filename' not in df or df['filename'].nunique() == 1:
-    return df_to_nodes_faces_simple(df, 'node', xyz)
-  print("# df_to_nodes_faces")
-  c = time.time()
-  import numpy as np
-  faces = []
-  dfn = df.pivot_table(node_name, 'filename', None, np.max)
-  dfn += 1
-  face_size = df['n'].max()
-  dfp = dfn.cumsum() - dfn
-  nodes = np.ndarray((dfn.values.sum() + 1, len(xyz)))
-  f = np.ndarray(face_size + 1, dtype=np.int)
-  for i,row in df.iterrows():
-    p = dfp.loc[row['filename'], node_name]
-    node = row[node_name]
-    nodes[p + node] = row[xyz]
-    n = row['n']
-    f[n] = p + node
-    if n == face_size:
-      faces.append(f.tolist())
+def df_to_nodes_faces_lines(df, node_name = 'node', xyz = ['x','y','z']):
+  nodes = []
+  lines = []
+  if 'type' in df:
+    l_nodes, lines = df_to_nodes_lines(df.query("type != 'TRIANGLE'"), node_name, xyz)
+    nodes.extend(l_nodes)
+    df = df.query("type == 'TRIANGLE'")
 
-  print("# df_to_nodes_faces",time.time() - c)
-  return nodes, faces
+  t_nodes, faces = df_to_nodes_faces(df, node_name, xyz)
 
-# backward compatibility
-# this old version supported reindexing nodes of multiple triangulations
-# but was too expensive to be practical
+  nodes.extend(t_nodes)
+  return nodes, faces, lines
+
+def df_to_nodes_lines(df, node_name, xyz):
+  nodes = df[xyz].values.take(df[node_name], 0)
+  lines = []
+  n = len(df)
+  part = []
+  for row in df.index[::-1]:
+    if 'n' in df:
+      n = df.loc[row, 'n']
+    else:
+      n -= 1
+    part.insert(0, n)
+    if n == 0:
+      lines.insert(0, part)
+      part = []
+  return nodes, lines
+
+df_to_nodes_faces = df_to_nodes_faces_simple
 
 def pd_save_tri(df, df_path):
   import vulcan
@@ -876,10 +748,12 @@ def pd_save_tri(df, df_path):
     df['filename'] = ''
 
   nodes, faces = df_to_nodes_faces(df)
+  print("nodes",len(nodes))
+  print("faces",len(faces))
   for n in nodes:
     tri.add_node(*n)
   for f in faces:
-    tri.add_face(*f)
+    tri.add_face(*map(int,f))
 
   tri.save(df_path)
 
@@ -887,15 +761,12 @@ def pd_save_tri(df, df_path):
 def pd_load_grid(df_path):
   import vulcan
 
-  print(df_path)
   grid = vulcan.grid(df_path)
   df = grid.get_pandas()
   df['filename'] = os.path.basename(df_path)
-  print(df)
   return df
 
 # Datamine DM
-
 def pd_load_dm(df_path, condition = ''):
   import win32com.client
   import pandas as pd
@@ -923,8 +794,6 @@ def dm_field_list(file_path):
   return r
 
 # Microsoft Excel compatibles
-
-
 def excel_field_list(df_path, table_name, alternate = False):
   r = []
   try:
@@ -943,26 +812,68 @@ def excel_field_list(df_path, table_name, alternate = False):
   
   return r
 
+def pd_from_openpyxl(ws):
+  import pandas as pd
+  data = ws.values
+  cols = next(data)
+  return pd.DataFrame(data, columns=[i if cols[i] is None else cols[i] for i in range(len(cols))])  
+
+def pd_load_excel_350(df_path, table_name):
+  import openpyxl
+  wb = openpyxl.load_workbook(df_path)
+  ws = None
+  if table_name and table_name in wb:
+    ws = wb[table_name]
+  else:
+    ws = wb.active
+  return pd_from_openpyxl(ws)
+
 def pd_load_excel(df_path, table_name = None):
+  if sys.hexversion < 0x3060000:
+    return pd_load_excel_350(df_path, table_name)
   import pandas as pd
   df = None
-  if pd.__version__ < '0.20':
-    import openpyxl
-    wb = openpyxl.load_workbook(df_path)
-    data = wb.active.values
-    if table_name and table_name in wb:
-      data = wb[table_name].values
-    cols = next(data)
-    df = pd.DataFrame(data, columns=[i if cols[i] is None else cols[i] for i in range(len(cols))])
-  else:
-    df = pd.read_excel(df_path, table_name, engine='openpyxl')
-    if not isinstance(df, pd.DataFrame):
-      _, df = df.popitem()
+  engine = 'openpyxl'
+  if df_path.lower().endswith('.xls'):
+    # openpyxl is not handling xls anymore
+    engine = None
+  df = pd.read_excel(df_path, table_name, engine=engine)
+  if not isinstance(df, pd.DataFrame):
+    _, df = df.popitem()
 
   return df
 
-# ESRI shape
+def pd_save_excel_tables(save_path, *arg):
+  import openpyxl
+  from openpyxl.worksheet.table import Table
+  from openpyxl.utils import get_column_letter
+  from openpyxl.utils.dataframe import dataframe_to_rows
 
+  wb = openpyxl.Workbook()
+  # remove the default Sheet1
+  wb.remove(wb.active)
+  for i in range(0, len(arg), 2):
+    t = None
+    if i+1 < len(arg):
+      t = arg[i+1]
+    if not t:
+      t = 'Table%d' % (i / 2 + 1)
+    df = arg[i]
+    ws = wb.create_sheet(title=t)
+    if isinstance(df, openpyxl.worksheet.worksheet.Worksheet):
+      for row in df.values:
+        ws.append(row)
+    else:
+      if not str(arg[i].index.dtype).startswith('int'):
+        df = arg[i].reset_index()
+      for r in dataframe_to_rows(df, index=False, header=True):
+        ws.append(r)
+      tab = Table(displayName=t, ref="A1:%s%d" % (get_column_letter(ws.max_column), ws.max_row))
+      ws.add_table(tab)
+
+  wb.save(save_path)
+
+# ESRI shape
 def pd_load_shape(file_path):
   import pandas as pd
   import shapefile
@@ -1032,7 +943,6 @@ def pd_save_shape(df, df_path):
       n -= 1
 
     p.insert(0, row)
-
     if n == 0:
       pdata = df.loc[p, xyzwt].values.tolist()
       ptype = ''
@@ -1061,14 +971,9 @@ def shape_field_list(file_path):
   return [shapes.fields[i][0] for i in range(1, len(shapes.fields))]
 
 # DXF
-
 def pd_load_dxf(df_path):
   import pandas as pd
-  try:
-    import ezdxf
-  except:
-    print("module ezdxf required")
-    return pd.DataFrame()
+  import ezdxf
   r = []
   doc = ezdxf.readfile(df_path)
   # iterate over all entities in modelspace
@@ -1164,7 +1069,7 @@ def leapfrog_load_mesh(df_path):
       break
   file.close()
 
-  print("%02x%02x%02x%02x %02x%02x%02x%02x %02x%02x%02x%02x = %.2f %.2f %.2f" % tuple(struct.unpack_from('12B', binary, 0) + struct.unpack_from('3f', binary, 0)))
+  log("%02x%02x%02x%02x %02x%02x%02x%02x %02x%02x%02x%02x = %.2f %.2f %.2f" % tuple(struct.unpack_from('12B', binary, 0) + struct.unpack_from('3f', binary, 0)))
   # skip unknown 12 byte header
   # maybe on some cases it contains rgb color?
   p = 12
@@ -1189,15 +1094,28 @@ def leapfrog_load_mesh(df_path):
 
   return store.get('Location', []), store.get('Tri', [])
 
-def pd_load_mesh(df_path):
-  import numpy as np
+def nodes_faces_to_df(nodes, faces):
   import pandas as pd
-  nodes, faces = leapfrog_load_mesh(df_path)
-  # print(np.shape(nodes))
-  # print(np.shape(faces))
-  df_data = [nodes[int(f[n])] + (0,bool(n),n,1,f[n]) for f in faces for n in range(3)]
+  uniquenodes = set()
+  for f in faces:
+    uniquenodes.update(f)
+
+  df_data = [tuple(nodes[int(f[n])]) + (0,bool(n),n,1,f[n]) for f in faces for n in range(3)]
+  # handle orphan points
+  if len(nodes) > len(uniquenodes):
+    orphannodes = uniquenodes.symmetric_difference(range(len(nodes)))
+    print("orphan nodes:", len(orphannodes))
+    for i in orphannodes:
+      df_data.append(tuple(nodes[int(i)]) + (0,0,None,1,i))
+
   return pd.DataFrame(df_data, columns=smartfilelist.default_columns + ['closed','node'])
 
+def pd_load_mesh(df_path):
+  nodes, faces = leapfrog_load_mesh(df_path)
+  print("nodes",len(nodes))
+  print("faces",len(faces))
+  return nodes_faces_to_df(nodes, faces)
+  
 def leapfrog_save_mesh(nodes, faces, df_path):
   import struct
   import numpy as np
@@ -1216,73 +1134,260 @@ def pd_save_mesh(df, df_path):
   nodes, faces = df_to_nodes_faces(df)
   leapfrog_save_mesh(nodes, faces, df_path)
 
+def img_to_df(img):
+  import numpy as np
+  import pandas as pd
+  channels = 1
+  if img.ndim >= 3:
+    channels = img.shape[2]
+  dfi = np.indices(img.shape[:2]).transpose(1,2,0).reshape((np.prod(img.shape[:2]),2))
+  dfx = img.reshape((np.prod(img.shape[:2]), channels))
+  return pd.DataFrame(np.concatenate([dfi, dfx], 1), columns=['x','y'] + list(map(str,range(channels))))
+
 # images and other binary databases
 def pd_load_spectral(df_path):
   import skimage.io
-  import numpy as np
-  import pandas as pd
-  df = skimage.io.imread(df_path)
-  channels = 1
-  if df.ndim >= 3:
-    channels = df.shape[2]
-  dfi = np.indices(df.shape[:2]).transpose(1,2,0).reshape((np.prod(df.shape[:2]),2))
-  dfx = df.reshape((np.prod(df.shape[:2]), channels))
-  return pd.DataFrame(np.concatenate([dfi, dfx], 1), columns=['x','y'] + list(map(str,range(channels))))
+  return img_to_df(skimage.io.imread(df_path))
 
 def pd_save_spectral(df, df_path):
   import skimage.io
   import numpy as np
   # original image width and height are recoverable from the max x and max y
   wh = np.max(df, 0)
-  #print(df)
   df.drop(['x','y'], 1, inplace=True)
-  #print(df.shape, wh['x'], wh['y'], (wh['x'] + 1) * (wh['y'] + 1))
-  #im_out = np.reshape(dfx.values, (wh.values[0] + 1, wh.values[1] + 1, wh.size - 2))
-  #im_out = np.reshape(df.values, (wh['x'] + 1, wh['y'] + 1, wh.size - 2))
+
   if wh.size > 3:
     im_out = np.reshape(df.values, (wh['x'] + 1, wh['y'] + 1, wh.size - 2))
   else:
     im_out = np.reshape(df[df.columns[0]], (wh['x'] + 1, wh['y'] + 1))
-  #print(im_out.shape)
   skimage.io.imsave(df_path, im_out)
 
 
 ### Wavefront OBJ ###
 def wavefront_load_obj(df_path):
-  nodes = []
-  faces = []
+  od = {"v": [], "f": [], "l": [], "vt": []}
   file = open(df_path, "r")
   for l in file:
     c = l.split()
-    if c[0] == 'v':
-      nodes.append(tuple(map(float, c[1:])))
+    if c[0] == 'vt':
+      od['vt'].append(tuple(map(float, c[1:])))
+    elif c[0] == 'v':
+      od['v'].append(tuple(map(float, c[1:])))
     if c[0] == 'f':
-      faces.append([int(_) - 1 for _ in c[1:]])
+      od['f'].append([int(_) - 1 for _ in c[1:]])
+    if c[0] == 'l':
+      od['l'].append([int(_) - 1 for _ in c[1:]])
   file.close()
-  return nodes, faces
+  return od
 
 def pd_load_obj(df_path):
   import pandas as pd
-  nodes, faces = wavefront_load_obj(df_path)
-  face_size = len(faces[0])
-  return pd.DataFrame([nodes[int(f[n])] + (0,bool(n),n,1,int(f[n])) for f in faces for n in range(face_size)], columns=smartfilelist.default_columns + ['closed','node'])
+  od = wavefront_load_obj(df_path)
+  nodes = od.get('v')
+  faces = od.get('f')
+  lines = od.get('l')
+  df = pd.DataFrame()
+  columns = smartfilelist.default_columns + ['closed','node','type']
+  if len(faces):
+    # mesh
+    df = df.append(pd.DataFrame([nodes[int(f[i])] + (0,bool(i),i,1,int(f[i]),'TRIANGLE') for f in faces for i in range(len(f))], columns=columns))
+  if len(lines):
+    # polyline
+    df = df.append(pd.DataFrame([nodes[int(n)] + (0,bool(n),n,1,int(n),'POLYLINE') for f in lines for n in f], columns=columns))
+  if len(lines) == 0 and len(faces) == 0:
+    # point cloud
+    df = df.append(pd.DataFrame([p + (0,0,0,0,0,'POINT') for p in nodes], columns=columns))
 
-def wavefront_save_obj(nodes, faces, df_path):
+  return df
+
+def wavefront_save_obj(df_path, od):
+  ' serialize a wavefront mesh dict to a file '
   file = open(df_path, "w")
-  for n in nodes:
-    #print('v %f %f %f' % tuple(n), file=file)
-    print('v', *n, file=file)
-  for f in faces:
-    #print('f %d %d %d' % tuple(f), file=file)
-    print('f', *[_ + 1 for _ in f], file=file)
+  for k,v in od.items():
+    for n in v:
+      if k in ['f','l']:
+        print(k, *[_ + 1 for _ in n], file=file)
+      else:
+        print(k, *n, file=file)
   file.close()
 
-
 def pd_save_obj(df, df_path):
-  nodes, faces = df_to_nodes_faces(df)
-  wavefront_save_obj(nodes, faces, df_path)
+  nodes, faces, lines = df_to_nodes_faces_lines(df)
+  wavefront_save_obj(df_path, {"v": nodes, "f": faces, "l": lines})
 
-### SMART ###
+# Las
+def pd_load_las(df_path):
+  import lasio
+  f,c = lasio.open_file(df_path, autodetect_encoding_chars=-1)
+  las = lasio.read(f)
+  f.close()
+  df = las.df()
+  df.reset_index(inplace=True)
+  return df
+
+
+### } IO
+
+### { GUI
+import tkinter as tk
+import tkinter.ttk as ttk
+import tkinter.messagebox as messagebox
+import tkinter.filedialog as filedialog
+import re, pickle, threading
+from PIL import Image, ImageDraw
+
+# show gui or run main
+def usage_gui(usage = None):
+  '''
+  this function handles most of the details required when using a exe interface
+  '''
+  # we already have arguments, run business code
+  if(len(sys.argv) > 1):
+    # traps help switches: /? -? /h -h /help -help
+    if(usage is not None and re.match(r'[\-/](?:\?|h|help)$', sys.argv[1])):
+      print(usage)
+    else:
+      # this special main will redirect to the business script
+      main(*sys.argv[1:])
+
+  else:
+    AppTk(usage).mainloop()
+
+class ClientScript(list):
+  '''Handles the script with the same name as this interface file'''
+  # magic signature that a script file must have for defining its gui
+  _magic = r"usage:\s*\S+\s*([^\"\'\\]+)"
+  _usage = None
+  _type = None
+  _file = None
+  _base = None
+  @classmethod
+  def init(cls, client):
+    cls._file = client
+    cls._base = os.path.splitext(cls._file)[0]
+    # HARDCODED list of supporte file types
+    # to add a new file type, just add it to the list
+    for ext in ['csh','lava','pl','bat','vbs','js']:
+      if os.path.exists(cls._base + '.' + ext):
+        cls._file = cls._base + '.' + ext
+        cls._type = ext.lower()
+        break
+
+  @classmethod
+  def exe(cls):
+    if cls._type == "csh":
+      return ["csh","-f"]
+    if cls._type == "bat":
+      return ["cmd", "/c"]
+    if cls._type == "vbs" or cls._type == "js":
+      return ["cscript", "/nologo"]
+    if cls._type == "lava" or cls._type == "pl":
+      return ["perl"]
+    if cls._type is None:
+      return ["python"]
+    return []
+
+  @classmethod
+  def run(cls, script):
+    print("# %s %s started" % (time.strftime('%H:%M:%S'), cls.file()))
+    p = None
+    if cls._type is None:
+      import multiprocessing
+      p = multiprocessing.Process(None, main, None, script.get())
+      p.start()
+      p.join()
+      p = p.exitcode
+    else:
+      import subprocess
+      # create a new process and passes the arguments on the command line
+      args = cls.exe() + [cls._file] + script.getArgs()
+      p = subprocess.Popen(" ".join(args))
+      p.wait()
+      p = p.returncode
+
+    if not p:
+      print("# %s %s finished" % (time.strftime('%H:%M:%S'), cls.file()))
+    return p
+
+  @classmethod
+  def type(cls):
+    return cls._type
+  
+  @classmethod
+  def base(cls):
+    return cls._base
+  
+  @classmethod
+  def file(cls, ext = None):
+    if ext is not None:
+      return cls._base + '.' + ext
+    return os.path.basename(cls._file)
+  
+  @classmethod
+  def args(cls, usage = None):
+    r = []
+    if usage is None and cls._type is not None:
+      usage = cls.parse()
+
+    if usage:
+      m = re.search(cls._magic, usage, re.IGNORECASE)
+      if(m):
+        cls._usage = m.group(1)
+    
+    if cls._usage is None or len(cls._usage) == 0:
+      r = ['arguments']
+    else:
+      r = cls._usage.split()
+    return r
+
+  @classmethod
+  def fields(cls, usage = None):
+    return [re.match(r"^\w+", _).group(0) for _ in cls.args(usage)]
+
+  @classmethod
+  def parse(cls):
+    if os.path.exists(cls._file):
+      with open(cls._file, 'r', encoding='latin_1') as file:
+        for line in file:
+          if re.search(cls._magic, line, re.IGNORECASE):
+            return line
+    return None
+
+  @classmethod
+  def header(cls):
+    r = ""
+    if os.path.exists(cls._file):
+      with open(cls._file, 'r') as file:
+        for line in file:
+          if(line.startswith('#!')):
+            continue
+          m = re.match(r'#\s*(.+)', line)
+          if m:
+            r += m.group(1) + "\n"
+          else:
+            break
+    return r
+
+class Settings(str):
+  '''provide persistence for control values using pickled ini files'''
+  _ext = '.ini'
+  def __new__(cls, value=''):
+    if len(value) == 0:
+      value = os.path.splitext(os.path.realpath(sys.argv[0]))[0]
+    if not value.endswith(cls._ext):
+      value += cls._ext
+
+    return super().__new__(cls, value)
+
+  def save(self, obj):
+    pickle.dump(obj, open(self,'wb'), 4)
+    
+  def load(self):
+    if os.path.exists(self):
+      return pickle.load(open(self, 'rb'))
+    return {}
+
+# option lists
 class smartfilelist(object):
   '''
   detects file type and return a list of relevant options
@@ -1325,7 +1430,7 @@ class smartfilelist(object):
         elif input_ext == ".msh" and s == 0:
           r = smartfilelist.default_columns + ['closed','node']
         elif input_ext == ".csv":
-          df = pd.read_csv(df_path, None, encoding="latin_1", engine="python", nrows=s == 0 and 1 or None)
+          df = pd.read_csv(df_path, None, engine='python', nrows=s == 0 and 1 or None)
           if s == 0:
             r = df.columns.tolist()
           if s == 1:
@@ -1336,6 +1441,15 @@ class smartfilelist(object):
             r = df['name'].tolist()
           else:
             r = df.columns.tolist()
+        elif input_ext == ".ipynb":
+          import json
+          d = json.load(open(df_path, 'rb'))
+          i = 0
+          while i < len(d['cells']):
+            if d['cells'][i]['cell_type'] == 'code':
+              break
+            i += 1
+          r = [str.split(_, ' = ')[0] for _ in  d['cells'][i]['source']]
         elif re.search(r'xls\w?$', df_path, re.IGNORECASE):
           r = excel_field_list(df_path, table_name, s)
         elif input_ext == ".dm" and s == 0:
@@ -1361,11 +1475,14 @@ class smartfilelist(object):
             r.extend(pv.read(df_path).array_names)
           except:
             print("pyvista or vtk modules could not be loaded")
+        elif input_ext == ".las":
+          r = pd_load_las(df_path).columns.tolist()
 
         smartfilelist._cache[s][df_path] = r
 
     return r
 
+# helper class to store parsed control definition tokens
 class UsageToken(str):
   '''handles the token format used to creating controls'''
   _name = None
@@ -1396,7 +1513,7 @@ class UsageToken(str):
   def data(self):
     return self._data
 
-
+# main content of dynamic form
 class ScriptFrame(ttk.Frame):
   '''frame that holds the script argument controls'''
   _tokens = None
@@ -1410,7 +1527,10 @@ class ScriptFrame(ttk.Frame):
       if token.type == '@':
         c = CheckBox(self, token.name, int(token.data) if token.data else 0)
       elif token.type == '*':
-        c = FileEntry(self, token.name, token.data)
+        if token.data:
+          c = FileEntry(self, token.name, token.data)
+        else:
+          c = DirectoryEntry(self, token.name)
       elif token.type == '=':
         c = LabelCombo(self, token.name, token.data)
       elif token.type == '#':
@@ -1465,7 +1585,6 @@ class ScriptFrame(ttk.Frame):
       arg = str(self.children[t.name].get())
       if len(arg) == 0 or not set(' ";%\\').isdisjoint(arg):
         arg = '"' + arg + '"'
-      print(arg)
       args.append(arg)
 
     return args
@@ -1542,6 +1661,7 @@ class LabelRadio(ttk.Labelframe):
     else:
       super().configure(**kw)
 
+# checkbox + Var
 class CheckBox(ttk.Checkbutton):
   '''superset of checkbutton with a builtin variable'''
   def __init__(self, master, label, reach=0):
@@ -1580,6 +1700,7 @@ def relative_paths(path):
       return os.path.relpath(path)
     return(path)
 
+# label + entry + dropdown list
 class LabelCombo(ttk.Frame):
   _label = None
   _control = None
@@ -1698,13 +1819,14 @@ class FileEntry(ttk.Frame):
 
     self._control['cursor'] = 'watch'
     if len(self._wildcard_list):
-      # wildcard_regex = '\.(?:' + '|'.join(self._wildcard_list) + ')$'
       self._control['values'] = [_ for _ in os.listdir('.') if re.search('\.(?:' + '|'.join(self._wildcard_list) + ')$', _)]
     else:
       self._control['values'] = os.listdir('.')
 
     # reset the cursor back to default
     self._control['cursor'] = ''
+    # reset red button back to black
+    self._button['style'] = ''
 
   def get(self):
     return self._control.get()
@@ -1724,6 +1846,39 @@ class FileEntry(ttk.Frame):
     self._button.configure(**kw)
     self._control.configure(**kw)
 
+class DirectoryEntry(ttk.Frame):
+  '''custom Entry, with label and a Browse button'''
+  _label = None
+  _button = None
+  _control = None
+  def __init__(self, master, label, wildcard=''):
+    ttk.Frame.__init__(self, master, name=label)
+    self._button = ttk.Button(self, text="⛚", command=self.onBrowse)
+    self._button.pack(side=tk.RIGHT)
+    self._control = ttk.Entry(self)
+    self._control.pack(expand=True, fill=tk.BOTH, side=tk.RIGHT)
+    self._label = ttk.Label(self, text=label, width=-20)
+    self._label.pack(side=tk.LEFT)
+
+  # activate the browse button, which shows a native fileopen dialog and sets the Entry control
+  def onBrowse(self):
+    r = filedialog.askdirectory()
+    if r:
+      self.set(relative_paths(r))
+
+  def get(self):
+    return self._control.get()
+  
+  def set(self, value):
+    self._control.delete(0, tk.END)
+    self._control.insert(0, value)
+
+  def configure(self, **kw):
+    self._button.configure(**kw)
+    self._control.configure(**kw)
+    self._label.configure(**kw)
+
+# helper function to securely handle username + password
 class Credentials(list):
   '''
   store credentials in a manageable manner
@@ -1736,8 +1891,9 @@ class Credentials(list):
     import cryptography.fernet
     import uuid
     # use symmetric encryption on the password
-    # key is visible to anyone with filesystem and execute access 
-    # to the machine where the store was created!
+    # local unique node id is used as key
+    # decoding is possible to anyone with filesystem
+    # and execute access to where the store was created!
     key = uuid.getnode().to_bytes(32, 'big')
     self._f = cryptography.fernet.Fernet(base64.urlsafe_b64encode(key))
     if s is not None:
@@ -1784,6 +1940,7 @@ class Credentials(list):
       step2 = b''
     self[1] = str(step2, self._encoding)
 
+# username + password
 class CredentialsInput(ttk.LabelFrame):
   ''' 
   Control to input username and Password
@@ -1833,6 +1990,41 @@ class CredentialsInput(ttk.LabelFrame):
     self._u.configure(**kw)
     self._p.configure(**kw)
 
+# template for entry + callback button to be overriden by subclass
+class ButtonEntry(ttk.Frame):
+  ''' should behave the same as Tix LabelEntry but with some customizations '''
+  _label = None
+  _control = None
+  def __init__(self, master, label, callback = None):
+    # create a container frame for the combo and label
+    ttk.Frame.__init__(self, master, name=label)
+    self._callback = callback
+    self._control = ttk.Entry(self)
+    self._control.pack(side=tk.LEFT, expand=True, fill=tk.BOTH)
+    if len(label) == 1:
+      self._button = ttk.Button(self, text=label, command=self.action, width=3)
+      self._button['style'] = 'basic.TButton'
+    else:
+      self._button = ttk.Button(self, text=label, command=self.action, width=16)
+
+    self._button.pack(side=tk.RIGHT)
+    
+  def get(self):
+    return self._control.get()
+   
+  def set(self, value):
+    if value is None:
+      return
+    if not isinstance(value, str):
+      value = str(value)
+
+    self._control.delete(0, tk.END)
+    self._control.insert(0, value)
+
+  def action(self):
+    if callable(self._callback):
+      self.set(self._callback())
+
 # create a table of entry/combobox widgets
 class tkTable(ttk.Labelframe):
   def __init__(self, master, label, columns):
@@ -1848,8 +2040,6 @@ class tkTable(ttk.Labelframe):
       ttk.Label(self, text=self._columns[i].name).grid(row=0, column=i)
 
     self.addRow()
-    # ttk.Style().configure('style.TFrame', background='green')
-    # self['style'] = 'style.TFrame'
     
   # return the table data as a serialized commalist
   def get(self, row=None, col=None):
@@ -2002,7 +2192,6 @@ class AppTk(tk.Tk):
     menu_file.add_command(label='Copy Command Line', command=self.script.copy)
     menu_file.add_command(label='Open Settings', command=self.openSettings)
     menu_file.add_command(label='Save Settings', command=self.saveSettings)
-    menu_file.add_command(label='Load Metadata', command=self.importMetadata)
     menu_file.add_command(label='Exit', command=self.destroy)
     menu_help.add_command(label='Help', command=self.showHelp)
     menu_help.add_command(label='Start Command Line Window', command=self.openCmd)
@@ -2027,9 +2216,11 @@ class AppTk(tk.Tk):
     threading.Thread(None, fork).start()
 
   def showHelp(self):
-    script_pdf = ClientScript.file('pdf')
-    if os.path.exists(script_pdf):
-      os.system(script_pdf)
+    for x in ['html','pdf']:
+      script_doc = ClientScript.file(x)
+      if os.path.exists(script_doc):
+        os.startfile(script_doc)
+        break
     else:
       messagebox.showerror('Help', 'Documentation file not found')
   
@@ -2051,66 +2242,18 @@ class AppTk(tk.Tk):
     if len(result) == 0:
       return
     Settings(result).save(self.script.get(True))
-
-  def importMetadata(self):
-    result = filedialog.askopenfilename(filetypes=[("xlsx", "*.xlsx")])
-    if len(result) == 0:
-      return
-    df = pd_load_excel(result, 'metadata')
-    df.set_index('vk', inplace=True)
-    dfd = df.to_dict()
-    if 'vs' in dfd:
-      self.script.set(dfd['vs'])
   
   def destroy(self):
     Settings().save(self.script.get(True))
     os.remove(self._iconfile)
     tk.Tk.destroy(self)
 
-
-class ButtonEntry(ttk.Frame):
-  ''' should behave the same as Tix LabelEntry but with some customizations '''
-  _label = None
-  _control = None
-  def __init__(self, master, label, callback = None):
-    # create a container frame for the combo and label
-    ttk.Frame.__init__(self, master, name=label)
-    self._callback = callback
-    self._control = ttk.Entry(self)
-    self._control.pack(side=tk.LEFT, expand=True, fill=tk.BOTH)
-    if len(label) == 1:
-      self._button = ttk.Button(self, text=label, command=self.action, width=3)
-      self._button['style'] = 'basic.TButton'
-    else:
-      self._button = ttk.Button(self, text=label, command=self.action, width=16)
-
-    self._button.pack(side=tk.RIGHT)
-    
-  def get(self):
-    return self._control.get()
-   
-  def set(self, value):
-    if value is None:
-      return
-    if not isinstance(value, str):
-      value = str(value)
-
-    self._control.delete(0, tk.END)
-    self._control.insert(0, value)
-
-  def action(self):
-    if callable(self._callback):
-      self.set(self._callback())
-
-### } GUI ###
-
-### BRANDING { ###
-
+# images for window icon and watermark
 class Branding(object):
   _gc = []
   def __init__(self, f='ICO', size=None, choice=None):
     if choice is None:
-      self._choice = os.environ['USERDOMAIN']
+      self._choice = os.environ.get('USERDOMAIN')
     else:
       self._choice = choice
 
@@ -2167,7 +2310,9 @@ class Branding(object):
     self._pi = tk.PhotoImage(data=self.data)
     return self._pi
 
-### } BRANDING ###
+### } GUI
+
+### { ENTRY POINTS
 
 # default main for when this script is standalone
 # when this as a library, will redirect to the caller script main()
@@ -2177,7 +2322,6 @@ def main(*args):
     # redirect to caller script main
     main(*args)
     return
-
 # special entry point for cmd
 if __name__ == '__main__' and sys.argv[0].endswith('_gui.py') and len(sys.argv) == 1:
   pass
@@ -2185,3 +2329,5 @@ elif __name__ == '__main__' and len(sys.argv) == 2:
   AppTk(None, sys.argv[1]).mainloop()
 elif __name__ == '__main__' and sys.argv[0].endswith('_gui.py'):
   main(sys.argv)
+
+### } ENTRY POINTS
