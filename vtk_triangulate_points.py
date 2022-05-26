@@ -46,7 +46,7 @@ import pyvista as pv
 from pd_vtk import pv_save, vtk_plot_meshes, vtk_df_to_mesh, vtk_mesh_to_df, vtk_Voxel
 from sklearn.neighbors import RadiusNeighborsRegressor
 
-def grid_points_2d(mesh, cell_size=10):
+def grid_points_2d(mesh, cell_size=10, max_search = None):
   grid = vtk_Voxel.from_mesh(mesh, cell_size, 2)
 
   cells = grid.cell_centers().points
@@ -62,6 +62,10 @@ def grid_points_2d(mesh, cell_size=10):
     neigh.fit(mesh.points[:,:2], mesh.points[:,2])
     rmat = neigh.predict(cells[:,:2])
     np.putmask(tmat, np.isnan(tmat), rmat)
+    if max_search is not None:
+      max_search -= 1
+      if max_search <= 0:
+        break
 
   print("regression min", np.min(tmat), "max", np.max(tmat))
   grid.cell_arrays['Elevation'] = tmat
@@ -90,7 +94,7 @@ def grid_points_rbf(mesh, cell_size=10, function='grid'):
 
 def main(input_points, mode, cell_size, convert_to_triangles, output, display):
   df = pd_load_dataframe(input_points)
-  mesh = vtk_df_to_mesh(df)
+  mesh = vtk_df_to_mesh(df, None, True)
   
   if not cell_size:
     cell_size = 10
@@ -103,7 +107,7 @@ def main(input_points, mode, cell_size, convert_to_triangles, output, display):
   elif mode == 'delaunay_3d':
     grid = mesh.delaunay_3d()
   elif mode == 'grid':
-    grid = grid_points_2d(mesh, float(cell_size))
+    grid = grid_points_2d(mesh, float(cell_size), 3)
     if int(convert_to_triangles):
       grid = grid.delaunay_2d()
   else:
