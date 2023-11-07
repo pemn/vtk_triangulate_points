@@ -8,7 +8,7 @@
 # cell_size: (optional) grid cell size
 # convert_to_triangles: convert the native faces with 4 sides to 3 sides
 '''
-usage: $0 input_point*csv,dxf,shp,tif,tiff mode%grid,delaunay_2d,delaunay_3d,outline cell_size=10 convert_to_triangles@ output*vtk,vtm display@
+usage: $0 input_point*csv,dxf,shp,tif,tiff,las mode%grid,delaunay_2d,delaunay_3d,outline cell_size=10 convert_to_triangles@ output*vtk,vtm display@
 '''
 '''
 Copyright 2017 - 2021 Vale
@@ -31,11 +31,15 @@ https://github.com/pemn/vtk_triangulate_points
 ---------------------------------
 
 '''
-import sys
+# this should point either to a absolute path or a relativa path
+# ex.:
+# las2txt.exe
+# c:/Program Files/Maptek/Vulcan 11/bin/exe/las2txt.exe
+las2txt_exe = r'c:\Program Files\Maptek\Vulcan 11\bin\exe\las2txt.exe'
+
+import sys, os, os.path
 import numpy as np
 import pandas as pd
-import os.path
-import re
 
 # import modules from a pyz (zip) file with same name as scripts
 sys.path.insert(0, os.path.splitext(sys.argv[0])[0] + '.pyz')
@@ -72,14 +76,14 @@ def grid_points_2d(mesh, cell_size=10, n_neighbors = 3):
   #       break
 
   print("regression min", np.nanmin(tmat), "max", np.nanmax(tmat))
-  grid.cell_arrays['Elevation'] = tmat
+  grid.cell_data['Elevation'] = tmat
   #print(grid)
   #grid = grid.threshold(np.nanmin(tmat))
   #print(grid)
   surf = grid.extract_surface()
   #print(surf)
   surf = surf.ctp()
-  surf.points[:, 2] = surf.point_arrays['Elevation']
+  surf.points[:, 2] = surf.point_data['Elevation']
   
   return surf
 
@@ -99,9 +103,29 @@ def grid_points_rbf(mesh, cell_size=10, function='grid'):
   grid.points[:, 2] = grid.get_array('Elevation')
   return grid
 
+def pd_las2txt(fp):
+  txt = fp + '.txt'
+  if not os.path.exists(txt):
+    if not os.path.exists(las2txt_exe):
+      import tkinter.messagebox as messagebox
+      messagebox.showerror('las2txt', 'las2txt executable not found in path:\n' + las2txt_exe)
+      sys.exit(1)
+    import subprocess
+    subprocess.call([las2txt_exe, fp, txt])
+  if os.path.exists(txt):
+    return pd.read_csv(txt, sep=' ', skiprows=1, header=0, names=['x','y','z','w','n'])
+  else:
+    import tkinter.messagebox as messagebox
+    messagebox.showerror('las2txt', f'{las2txt_exe} failed to run.\n{txt} not found')
+    sys.exit(1)
 
-def main(input_points, mode, cell_size, convert_to_triangles, output, display):
-  df = pd_load_dataframe(input_points)
+def vtk_triangulate_points(input_points, mode, cell_size, convert_to_triangles, output, display):
+  df = None
+  if input_points.lower().endswith('.las'):
+    df = pd_las2txt(input_points)
+  else:
+    df = pd_load_dataframe(input_points)
+
   mesh = vtk_df_to_mesh(df, None, True)
   
   if not cell_size:
@@ -113,7 +137,7 @@ def main(input_points, mode, cell_size, convert_to_triangles, output, display):
   elif mode == 'delaunay_2d':
     grid = mesh.delaunay_2d()
   elif mode == 'delaunay_3d':
-    grid = mesh.delaunay_3d()
+    grid = mesh.delaunay_3d().extract_geometry()
   elif mode == 'grid':
     #grid = grid_points_2d(mesh, float(cell_size))
     grid = grid_points_2d(mesh, float(cell_size), 1)
@@ -122,14 +146,14 @@ def main(input_points, mode, cell_size, convert_to_triangles, output, display):
   else:
     grid = grid_points_rbf(mesh, float(cell_size), mode)
 
-  if re.search(r'vt.$', output, re.IGNORECASE):
+  print(grid)
+  if output:
     pv_save(grid, output)
-  elif output:
-    df = vtk_mesh_to_df(grid)
-    pd_save_dataframe(df, output)
 
   if int(display):
     vtk_plot_meshes([mesh, grid], True)
+
+main = vtk_triangulate_points
 
 if __name__=="__main__":
   usage_gui(__doc__)
