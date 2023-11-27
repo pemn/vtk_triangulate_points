@@ -10,7 +10,7 @@ The grid method uses a voxel approach where the space is divided in cells and a 
 Download all files and run vtk_triangulate_points.py in your python enviroment of choice. The graphic interface should appear.  
 Ex.:  
 `python vtk_triangulate_points.py`  
-Python 3.5+ required. Recomended: WinPython64-3.8.x.x (https://winpython.github.io/)  
+Python 3.5+ required. Recomended: WinPython64-3.8+ (https://winpython.github.io/)  
 The following modules are required:
 - pandas
 - sklearn
@@ -32,10 +32,10 @@ Of those only pyvista is not commonly present is most python distros.
 
 ## Usage
 The script accepts multiple data file formats common in the Mining, Cartography and Topography industries:
- - ASCII Csv
- - ESRI Shapefile
- - Autodesk DXF
- - Excel XLSX
+ - ASCII Csv structured data (*.csv)
+ - ESRI Shapefile (*.shp +)
+ - Autodesk DXF (*.dxf)
+ - Excel structured data (*.xlsx)
  - VTK (*.vtk, *.vtm)
  - Las Topography (*.las)
  - Raster Geotiff (*.tif, *.tiff)
