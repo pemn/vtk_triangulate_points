@@ -127,6 +127,9 @@ def vtk_triangulate_points(input_points, mode, cell_size, convert_to_triangles, 
     df = pd_load_dataframe(input_points)
 
   mesh = vtk_df_to_mesh(df, None, True)
+
+  if mesh is None:
+    return
   
   if not cell_size:
     cell_size = 10
